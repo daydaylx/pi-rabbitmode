@@ -45,12 +45,21 @@ interface RegisteredCommand {
   handler: RegisteredCommandHandler;
 }
 
+type RegisteredShortcutHandler = (ctx: unknown) => Promise<void> | void;
+
+interface RegisteredShortcut {
+  description?: string;
+  handler: RegisteredShortcutHandler;
+}
+
 type LifecycleHandler = (event: unknown, ctx: unknown) => unknown;
 
 export interface FakeExtensionApi {
   readonly events: FakeEventBus;
   readonly commands: Map<string, RegisteredCommand>;
+  readonly shortcuts: Map<string, RegisteredShortcut>;
   registerCommand(name: string, options: RegisteredCommand): void;
+  registerShortcut(shortcut: string, options: RegisteredShortcut): void;
   on(event: string, handler: LifecycleHandler): void;
   fireLifecycleEvent(event: string): Promise<void>;
 }
@@ -58,13 +67,18 @@ export interface FakeExtensionApi {
 export function createFakeExtensionApi(): FakeExtensionApi {
   const events = createFakeEventBus();
   const commands = new Map<string, RegisteredCommand>();
+  const shortcuts = new Map<string, RegisteredShortcut>();
   const lifecycleHandlers = new Map<string, LifecycleHandler[]>();
 
   return {
     events,
     commands,
+    shortcuts,
     registerCommand(name, options) {
       commands.set(name, options);
+    },
+    registerShortcut(shortcut, options) {
+      shortcuts.set(shortcut, options);
     },
     on(event, handler) {
       const list = lifecycleHandlers.get(event) ?? [];

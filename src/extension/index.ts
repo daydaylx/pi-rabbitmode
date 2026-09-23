@@ -1,11 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerRabbitCommand } from "../rabbit/commands.ts";
+import { registerRabbitShortcut } from "../rabbit/shortcut.ts";
 import { createRabbitState } from "../rabbit/state.ts";
 
 /**
- * RabbitMode extension entrypoint — Phase 1-2 (session state + /rabbit
- * command only). See README.md and docs/spec/05_IMPLEMENTATION_PHASES.md
- * for the full roadmap.
+ * RabbitMode extension entrypoint — Phase 1-3 (session state, /rabbit
+ * command, Super+Alt+R shortcut). See README.md and
+ * docs/spec/05_IMPLEMENTATION_PHASES.md for the full roadmap.
  *
  * The extension factory runs once per Pi process (state below is a module
  * closure, not global module state), but a single process can host several
@@ -15,6 +16,7 @@ import { createRabbitState } from "../rabbit/state.ts";
 export default function rabbitModeExtension(pi: ExtensionAPI): void {
   const state = createRabbitState(pi);
   registerRabbitCommand(pi, state);
+  registerRabbitShortcut(pi, state);
 
   pi.on("session_start", () => {
     state.reset();

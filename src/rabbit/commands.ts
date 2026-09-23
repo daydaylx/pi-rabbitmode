@@ -39,8 +39,7 @@ export function registerRabbitCommand(
       switch (sub) {
         case "":
         case "toggle":
-          if (state.mode() === "off") state.activate(ctx);
-          else state.deactivate(ctx);
+          state.toggle(ctx);
           return;
         case "on":
           state.activate(ctx);

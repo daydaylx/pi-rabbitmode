@@ -71,6 +71,14 @@ export interface RabbitStateApi {
   activate(ctx: ExtensionContext): { changed: boolean };
   deactivate(ctx: ExtensionContext): { changed: boolean; blocked: boolean };
   /**
+   * Single toggle path shared by `/rabbit` (bare/`toggle`) and the
+   * `Super+Alt+R` shortcut (Phase 3) — the contract requires both to use
+   * the same code path, not duplicated business logic in the shortcut
+   * handler (`docs/spec/02_CONTRACTS.md` §1, `docs/spec/06_TEST_MATRIX.md`
+   * §A).
+   */
+  toggle(ctx: ExtensionContext): { changed: boolean; blocked: boolean };
+  /**
    * Phase-2 stub: RabbitMode does not run any agents yet, so there is
    * never an active run to protect. Phase 8+ (workflow graph / nested
    * delegation) replaces this body without changing the signature or any
@@ -140,6 +148,12 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
       emitRabbitModeChanged(pi, mode);
       ctx.ui.notify("RabbitMode deaktiviert.", "info");
       return { changed: true, blocked: false };
+    },
+
+    toggle(ctx) {
+      return mode === "off"
+        ? { ...api.activate(ctx), blocked: false }
+        : api.deactivate(ctx);
     },
 
     reset() {

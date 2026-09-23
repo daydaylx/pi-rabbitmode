@@ -55,6 +55,23 @@ test("deactivate while already off is a no-op", () => {
   assert.equal(api.events.emitted.length, 0);
 });
 
+test("toggle flips off -> active -> off via the same path as activate/deactivate", () => {
+  const { api, state, ctx } = setup();
+
+  const first = state.toggle(ctx as never);
+  assert.deepEqual(first, { changed: true, blocked: false });
+  assert.equal(state.mode(), "active");
+
+  const second = state.toggle(ctx as never);
+  assert.deepEqual(second, { changed: true, blocked: false });
+  assert.equal(state.mode(), "off");
+
+  assert.deepEqual(
+    api.events.emitted.map((entry) => entry.data),
+    [{ mode: "active" }, { mode: "off" }],
+  );
+});
+
 test("hasActiveRun is always false in Phase 1-2 (documented stub)", () => {
   const { state, ctx } = setup();
   assert.equal(state.hasActiveRun(), false);

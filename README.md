@@ -7,18 +7,22 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–2 Grundgerüst
+## Status: Phase 1–3 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
 - ein installierbares, standardmäßig **wirkungsloses** Pi-Package
 - session-lokalen Rabbit-State (`off` | `active`)
 - `/rabbit on|off|status|stop` (plus `/rabbit`/`/rabbit toggle` als Toggle-Alias)
+- `Super+Alt+R` als zusätzlichen Shortcut, der exakt denselben Toggle-Pfad
+  wie `/rabbit toggle` aufruft (keine doppelte Logik im Shortcut-Handler)
 
-**Es gibt noch keine Orchestrierung, keinen Shortcut, kein eigenes Theme,
-keine Subagenten-Ansteuerung.** `/rabbit on` schaltet nur einen internen
-Zustand um und zeigt ihn an — es verändert nie Permission-Level oder
-Workflow-Mode, auch nicht indirekt.
+**Es gibt noch keine Orchestrierung, kein eigenes Theme, keine
+Subagenten-Ansteuerung.** `/rabbit on` schaltet nur einen internen Zustand
+um und zeigt ihn an — es verändert nie Permission-Level oder Workflow-Mode,
+auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab` (Workflow-Menü)
+bleiben unverändert; RabbitMode registriert ausschließlich die neue,
+bisher unbelegte Bindung `Super+Alt+R`.
 
 ## Architektur (Zielbild, nicht vollständig umgesetzt)
 
@@ -71,7 +75,7 @@ Arbeitsbaum selbst).
 
 ## Roadmap (spätere Phasen, siehe `docs/spec/05_IMPLEMENTATION_PHASES.md`)
 
-Phase 3 Shortcut (`Super+Alt+R`) · Phase 4 MAX-Thinking-Override ·
+Phase 4 MAX-Thinking-Override ·
 Phase 5 Rabbit-TUI (`aurora-rabbit`, Blue Shift) · Phase 6 `pi-subagents`-
 RPC-Bridge · Phase 7 Ephemeral Agent Factory · Phase 8 Workflow-Graph ·
 Phase 9 Replanning · Phase 10 Nested Delegation · Phase 11 Writer ·

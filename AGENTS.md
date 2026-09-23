@@ -2,9 +2,9 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–2** (Grundgerüst + session-
-lokaler Rabbit-State + `/rabbit`-Command). Es gibt noch keine
-Orchestrierung, keinen Shortcut, kein Theme und keine Ansteuerung von
+Dieses Repository befindet sich in **Phase 1–3** (Grundgerüst,
+session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut).
+Es gibt noch keine Orchestrierung, kein Theme und keine Ansteuerung von
 `pi-subagents`. Die vollständige Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
@@ -31,7 +31,7 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Root-only dynamic agent creation. (ab Phase 7)
 - Writer concurrency initial 1. (ab Phase 11)
 - Bestehende Pi-Shortcuts nicht verändern; einzige neue Bindung ist
-  `Super+Alt+R`. (ab Phase 3)
+  `Super+Alt+R`.
 - `Super+R` und `Shift+Tab` müssen unverändert bleiben.
 - TUI rendert Zustand; TUI entscheidet keine Orchestrierungs-/
   Permission-Regeln. (ab Phase 5)
