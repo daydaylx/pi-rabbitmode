@@ -3,13 +3,19 @@ import { test } from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerRabbitCommand } from "../src/rabbit/commands.ts";
 import { createRabbitState } from "../src/rabbit/state.ts";
-import { createFakeCommandContext, createFakeExtensionApi } from "./support/fakes.ts";
+import {
+  createFakeCommandContext,
+  createFakeExtensionApi,
+  fakeModelSupportingMax,
+} from "./support/fakes.ts";
 
 function setup() {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
   registerRabbitCommand(api as unknown as ExtensionAPI, state);
-  const { ctx, notifications } = createFakeCommandContext();
+  const { ctx, notifications } = createFakeCommandContext({
+    model: fakeModelSupportingMax(),
+  });
   return { api, state, ctx, notifications };
 }
 

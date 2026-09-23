@@ -2,9 +2,10 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–3** (Grundgerüst,
-session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut).
-Es gibt noch keine Orchestrierung, kein Theme und keine Ansteuerung von
+Dieses Repository befindet sich in **Phase 1–4** (Grundgerüst,
+session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
+erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check). Es
+gibt noch keine Orchestrierung, kein Theme und keine Ansteuerung von
 `pi-subagents`. Die vollständige Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
@@ -25,7 +26,7 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Keine zweite Subagent-Execution-Engine.
 - Keine versteckten Plan->Work-Wechsel.
 - Keine automatischen YOLO-/Permission-Erhöhungen.
-- Rabbit läuft mit `max`; kein stiller Downgrade. (ab Phase 4)
+- Rabbit läuft mit `max`; kein stiller Downgrade.
 - Dynamische Agenten bleiben standardmäßig ephemeral. (ab Phase 7)
 - Nested Depth maximal 2. (ab Phase 10)
 - Root-only dynamic agent creation. (ab Phase 7)

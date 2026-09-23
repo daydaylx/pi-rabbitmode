@@ -2,12 +2,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createRabbitState } from "../src/rabbit/state.ts";
-import { createFakeCommandContext, createFakeExtensionApi } from "./support/fakes.ts";
+import {
+  createFakeCommandContext,
+  createFakeExtensionApi,
+  fakeModelSupportingMax,
+  fakeModelWithoutMax,
+} from "./support/fakes.ts";
 
 function setup() {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
-  const { ctx, notifications } = createFakeCommandContext();
+  // Model supports max by default so existing activate/deactivate tests
+  // aren't about capability checking — that has its own tests below.
+  const { ctx, notifications } = createFakeCommandContext({
+    model: fakeModelSupportingMax(),
+  });
   return { api, state, ctx, notifications };
 }
 
@@ -126,4 +135,69 @@ test("never emits on an aurora-ui/* channel (RabbitMode never writes Aurora stat
     entry.channel.startsWith("aurora-ui/"),
   );
   assert.equal(auroraEmits.length, 0);
+});
+
+test("activate forces max thinking and remembers the previous level", () => {
+  const api = createFakeExtensionApi("high");
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });
+
+  state.activate(ctx as never);
+
+  assert.equal(api.getThinkingLevel(), "max");
+  assert.deepEqual(api.thinkingLevelHistory, ["max"]);
+});
+
+test("deactivate restores the thinking level from before activate", () => {
+  const api = createFakeExtensionApi("medium");
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });
+
+  state.activate(ctx as never);
+  assert.equal(api.getThinkingLevel(), "max");
+
+  state.deactivate(ctx as never);
+  assert.equal(api.getThinkingLevel(), "medium");
+});
+
+test("activate is rejected, not silently downgraded, when the model has no max", () => {
+  const api = createFakeExtensionApi("high");
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const { ctx, notifications } = createFakeCommandContext({
+    model: fakeModelWithoutMax(),
+  });
+
+  const result = state.activate(ctx as never);
+
+  assert.equal(result.changed, false);
+  assert.equal(state.mode(), "off");
+  // No silent max -> high fallback: setThinkingLevel is never called at all.
+  assert.equal(api.thinkingLevelHistory.length, 0);
+  assert.equal(api.getThinkingLevel(), "high");
+  assert.match(
+    notifications[notifications.length - 1]?.message ?? "",
+    /RABBIT_MODEL_INCOMPATIBLE/,
+  );
+});
+
+test("activate is rejected when no model is selected (fail-closed)", () => {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const { ctx } = createFakeCommandContext({ model: undefined });
+
+  const result = state.activate(ctx as never);
+
+  assert.equal(result.changed, false);
+  assert.equal(api.thinkingLevelHistory.length, 0);
+});
+
+test("a rejected activate never emits rabbit:mode-changed", () => {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const { ctx } = createFakeCommandContext({ model: fakeModelWithoutMax() });
+
+  state.activate(ctx as never);
+
+  assert.equal(state.mode(), "off");
+  assert.equal(api.events.emitted.length, 0);
 });

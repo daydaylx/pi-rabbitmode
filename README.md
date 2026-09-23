@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–3 Grundgerüst
+## Status: Phase 1–4 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
@@ -16,6 +16,11 @@ Diese Version implementiert ausschließlich:
 - `/rabbit on|off|status|stop` (plus `/rabbit`/`/rabbit toggle` als Toggle-Alias)
 - `Super+Alt+R` als zusätzlichen Shortcut, der exakt denselben Toggle-Pfad
   wie `/rabbit toggle` aufruft (keine doppelte Logik im Shortcut-Handler)
+- erzwungenes `max`-Thinking während RabbitMode aktiv ist: die vorherige
+  Stufe wird gemerkt und beim Deaktivieren wiederhergestellt; ein Modell
+  ohne `max`-Unterstützung lässt `/rabbit on` fehlschlagen
+  (`RABBIT_MODEL_INCOMPATIBLE`) statt still auf eine niedrigere Stufe zu
+  fallen
 
 **Es gibt noch keine Orchestrierung, kein eigenes Theme, keine
 Subagenten-Ansteuerung.** `/rabbit on` schaltet nur einen internen Zustand
@@ -75,7 +80,6 @@ Arbeitsbaum selbst).
 
 ## Roadmap (spätere Phasen, siehe `docs/spec/05_IMPLEMENTATION_PHASES.md`)
 
-Phase 4 MAX-Thinking-Override ·
 Phase 5 Rabbit-TUI (`aurora-rabbit`, Blue Shift) · Phase 6 `pi-subagents`-
 RPC-Bridge · Phase 7 Ephemeral Agent Factory · Phase 8 Workflow-Graph ·
 Phase 9 Replanning · Phase 10 Nested Delegation · Phase 11 Writer ·

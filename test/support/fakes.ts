@@ -1,10 +1,15 @@
 /**
- * Minimal hand-written fakes for the two `@earendil-works/pi-coding-agent`
- * surfaces RabbitMode touches in Phase 1-2: the event bus and the command
- * context. No test-utility package for Pi extensions exists in this
+ * Minimal hand-written fakes for the `@earendil-works/pi-coding-agent`
+ * surfaces RabbitMode touches: the event bus, command/shortcut
+ * registration, the command context, and (Phase 4) thinking-level
+ * control. No test-utility package for Pi extensions exists in this
  * ecosystem yet, so these fakes are intentionally small and local to this
  * repo rather than a shared dependency.
  */
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+/** See src/rabbit/effort.ts for why this is derived, not imported directly. */
+type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 
 export interface RecordedEmit {
   channel: string;
@@ -58,22 +63,30 @@ export interface FakeExtensionApi {
   readonly events: FakeEventBus;
   readonly commands: Map<string, RegisteredCommand>;
   readonly shortcuts: Map<string, RegisteredShortcut>;
+  readonly thinkingLevelHistory: ThinkingLevel[];
   registerCommand(name: string, options: RegisteredCommand): void;
   registerShortcut(shortcut: string, options: RegisteredShortcut): void;
   on(event: string, handler: LifecycleHandler): void;
   fireLifecycleEvent(event: string): Promise<void>;
+  getThinkingLevel(): ThinkingLevel;
+  setThinkingLevel(level: ThinkingLevel): void;
 }
 
-export function createFakeExtensionApi(): FakeExtensionApi {
+export function createFakeExtensionApi(
+  initialThinkingLevel: ThinkingLevel = "high",
+): FakeExtensionApi {
   const events = createFakeEventBus();
   const commands = new Map<string, RegisteredCommand>();
   const shortcuts = new Map<string, RegisteredShortcut>();
   const lifecycleHandlers = new Map<string, LifecycleHandler[]>();
+  const thinkingLevelHistory: ThinkingLevel[] = [];
+  let thinkingLevel: ThinkingLevel = initialThinkingLevel;
 
   return {
     events,
     commands,
     shortcuts,
+    thinkingLevelHistory,
     registerCommand(name, options) {
       commands.set(name, options);
     },
@@ -90,7 +103,39 @@ export function createFakeExtensionApi(): FakeExtensionApi {
         await handler({ type: event }, {});
       }
     },
+    getThinkingLevel() {
+      return thinkingLevel;
+    },
+    setThinkingLevel(level) {
+      thinkingLevel = level;
+      thinkingLevelHistory.push(level);
+    },
   };
+}
+
+/**
+ * Minimal fakes matching the two fields `getSupportedThinkingLevels`
+ * (`@earendil-works/pi-ai`) actually reads (`reasoning`, `thinkingLevelMap`)
+ * — not a full `Model<Api>`, cast at the call site like other fakes here.
+ */
+export function fakeModelSupportingMax(id = "test/supports-max") {
+  return {
+    id,
+    reasoning: true,
+    thinkingLevelMap: { max: "max", xhigh: "xhigh" },
+  };
+}
+
+export function fakeModelWithoutMax(id = "test/no-max") {
+  return {
+    id,
+    reasoning: true,
+    thinkingLevelMap: { high: "high" },
+  };
+}
+
+export function fakeModelWithoutReasoning(id = "test/no-reasoning") {
+  return { id, reasoning: false };
 }
 
 export interface RecordedNotify {
@@ -104,14 +149,16 @@ export interface FakeCommandContextUi {
 
 export interface FakeCommandContext {
   ui: FakeCommandContextUi;
+  model?: unknown;
 }
 
-export function createFakeCommandContext(): {
+export function createFakeCommandContext(options?: { model?: unknown }): {
   ctx: FakeCommandContext;
   notifications: RecordedNotify[];
 } {
   const notifications: RecordedNotify[] = [];
   const ctx: FakeCommandContext = {
+    model: options?.model,
     ui: {
       notify(message, type) {
         notifications.push({ message, type });

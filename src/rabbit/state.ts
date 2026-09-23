@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { createEffortController } from "./effort.ts";
 import { emitRabbitModeChanged } from "./events.ts";
 
 export type RabbitMode = "off" | "active";
@@ -96,6 +97,7 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
   let observedPermissionLevel: string | undefined;
   let observedWorkflowPhase: string | undefined;
   let unsubscribe: (() => void) | undefined;
+  const effort = createEffortController(pi);
 
   function subscribeAuroraPatches(): void {
     unsubscribe?.();
@@ -123,10 +125,15 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
         ctx.ui.notify("RabbitMode ist bereits aktiv.", "info");
         return { changed: false };
       }
+      const effortResult = effort.applyMax(ctx);
+      if (!effortResult.supported) {
+        ctx.ui.notify(effortResult.reason, "warning");
+        return { changed: false };
+      }
       mode = "active";
       emitRabbitModeChanged(pi, mode);
       ctx.ui.notify(
-        "RabbitMode aktiviert (Grundgerüst — noch keine Orchestrierung).",
+        "RabbitMode aktiviert (MAX Thinking erzwungen — Grundgerüst, noch keine Orchestrierung).",
         "info",
       );
       return { changed: true };
@@ -145,8 +152,12 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
         return { changed: false, blocked: false };
       }
       mode = "off";
+      effort.restore();
       emitRabbitModeChanged(pi, mode);
-      ctx.ui.notify("RabbitMode deaktiviert.", "info");
+      ctx.ui.notify(
+        "RabbitMode deaktiviert (vorherige Thinking-Stufe wiederhergestellt).",
+        "info",
+      );
       return { changed: true, blocked: false };
     },
 
@@ -160,12 +171,14 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
       mode = "off";
       observedPermissionLevel = undefined;
       observedWorkflowPhase = undefined;
+      effort.reset();
       subscribeAuroraPatches();
     },
 
     dispose() {
       unsubscribe?.();
       unsubscribe = undefined;
+      effort.reset();
     },
   };
 

@@ -4,7 +4,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RABBIT_SHORTCUT, registerRabbitShortcut } from "../src/rabbit/shortcut.ts";
 import { registerRabbitCommand } from "../src/rabbit/commands.ts";
 import { createRabbitState } from "../src/rabbit/state.ts";
-import { createFakeCommandContext, createFakeExtensionApi } from "./support/fakes.ts";
+import {
+  createFakeCommandContext,
+  createFakeExtensionApi,
+  fakeModelSupportingMax,
+} from "./support/fakes.ts";
 
 test("registers exactly super+alt+r, nothing else", () => {
   const api = createFakeExtensionApi();
@@ -21,7 +25,7 @@ test("shortcut toggles the same state as /rabbit toggle (single code path)", asy
   const state = createRabbitState(api as unknown as ExtensionAPI);
   registerRabbitCommand(api as unknown as ExtensionAPI, state);
   registerRabbitShortcut(api as unknown as ExtensionAPI, state);
-  const { ctx } = createFakeCommandContext();
+  const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });
 
   const shortcut = api.shortcuts.get("super+alt+r");
   assert.ok(shortcut);
@@ -42,7 +46,7 @@ test("shortcut never emits on an aurora-ui/* channel", async () => {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
   registerRabbitShortcut(api as unknown as ExtensionAPI, state);
-  const { ctx } = createFakeCommandContext();
+  const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });
 
   const shortcut = api.shortcuts.get("super+alt+r");
   assert.ok(shortcut);
