@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–5 Grundgerüst
+## Status: Phase 1–6 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
@@ -27,6 +27,10 @@ Diese Version implementiert ausschließlich:
   in `settings.json` geschrieben)
 - einen `◆ RABBIT · MAX`-Statuswidget (`ctx.ui.setWidget`, über dem Editor),
   sichtbar solange RabbitMode aktiv ist
+- einen Client für `pi-subagents`' bestehendes v1 EventBus-RPC
+  (`subagents:rpc:v1:*`, `src/runtime/subagents-rpc.ts`): `/rabbit status`
+  pingt die Runtime (kurzer Timeout) und zeigt an, ob sie erreichbar ist —
+  reine Diagnose, noch kein Spawn/Orchestrierung
 
 **Es gibt noch keine Orchestrierung, keine Subagenten-Ansteuerung.**
 `/rabbit on` schaltet einen internen Zustand um, erzwingt `max`-Thinking und
@@ -62,6 +66,21 @@ Terminals erkennbar" (Theme deckt das ab) bereits erfüllt; die volle
 "spektakuläre", durchgehend bewegte Inszenierung bleibt offen für eine
 spätere Runde, idealerweise zusammen mit einer bewussten Entscheidung, ob
 und wie ein solcher Hook in `daydaylx/pi` aussehen soll.
+
+### Bewusste Grenze in Phase 6: nur v1-RPC, kein v2-Protokoll
+
+`docs/spec/10_INTEGRATION_PLAN.md` empfiehlt für Capability Discovery,
+Ephemeral-Agent-Definitionen und deklarative Graph-/Chain-Ausführung ein
+neues `subagents:rpc:v2`. Das würde echten Code in `daydaylx/pi-subagents`
+selbst ändern — einem dritten, aktiv weiterentwickelten Repository mit
+eigener Historie (nicht nur einer Spezifikationsidee). Diese Runde bindet
+bewusst nur das bereits vorhandene, stabile v1-Protokoll an
+(`ping`/`status`/`spawn`/`interrupt`/`stop`, Event-Namen `subagents:rpc:v1:*`
+— exakt aus `~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/extension/
+rpc.ts` übernommen, nicht importiert, da `pi-subagents` selbst kein
+`exports`-Feld hat). Das v2-Protokolldesign — Voraussetzung für Phase 7
+(Ephemeral Agent Factory) und Phase 8 (Workflow-Graph) — bleibt eine
+offene, bewusst nicht in dieser Runde getroffene Entscheidung.
 
 ## Architektur (Zielbild, nicht vollständig umgesetzt)
 
@@ -115,8 +134,9 @@ Arbeitsbaum selbst).
 ## Roadmap (spätere Phasen, siehe `docs/spec/05_IMPLEMENTATION_PHASES.md`)
 
 Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
-öffentlicher Aurora-Motion-Hook existiert) · Phase 6 `pi-subagents`-
-RPC-Bridge · Phase 7 Ephemeral Agent Factory · Phase 8 Workflow-Graph ·
+öffentlicher Aurora-Motion-Hook existiert) · Phase 6b `subagents:rpc:v2`
+(eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 7
+Ephemeral Agent Factory · Phase 8 Workflow-Graph ·
 Phase 9 Replanning · Phase 10 Nested Delegation · Phase 11 Writer ·
 Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·
 Phase 14 Benchmark.

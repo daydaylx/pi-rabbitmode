@@ -138,6 +138,59 @@ export function fakeModelWithoutReasoning(id = "test/no-reasoning") {
   return { id, reasoning: false };
 }
 
+/**
+ * A fast, deterministic stand-in for `SubagentRpcClient`
+ * (`src/runtime/subagents-rpc.ts`) so `commands.ts` unit tests don't pay
+ * the real client's timeout delay. `test/subagents-rpc.test.ts` exercises
+ * the real implementation's request/reply/timeout behavior separately.
+ */
+export function createFakeSubagentRpcClient(options?: {
+  pingBehavior?: "success" | "error" | "timeout";
+  pingVersion?: number;
+}) {
+  const behavior = options?.pingBehavior ?? "success";
+  const version = options?.pingVersion ?? 1;
+  let pingCalls = 0;
+
+  async function ping() {
+    pingCalls += 1;
+    if (behavior === "timeout") {
+      throw new Error('RabbitMode: subagents RPC "ping" timed out (fake)');
+    }
+    if (behavior === "error") {
+      return {
+        version: 1,
+        requestId: "fake",
+        method: "ping",
+        success: false,
+        error: { code: "no_active_session", message: "fake error" },
+      };
+    }
+    return {
+      version: 1,
+      requestId: "fake",
+      method: "ping",
+      success: true,
+      data: {
+        version,
+        methods: ["ping", "status", "spawn", "interrupt", "stop"],
+        capabilities: { status: true, asyncSpawn: true, interrupt: true, stop: true },
+        events: { ready: "", request: "", replyPrefix: "" },
+        session: {},
+      },
+    };
+  }
+
+  return {
+    call: async (method: string) => {
+      if (method === "ping") return ping();
+      throw new Error(`fake subagents RPC client: unsupported method "${method}" in test`);
+    },
+    ping,
+    pingCallCount: () => pingCalls,
+  };
+}
+
 export interface RecordedNotify {
   message: string;
   type?: "info" | "warning" | "error";

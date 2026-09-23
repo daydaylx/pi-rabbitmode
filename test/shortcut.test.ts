@@ -7,6 +7,7 @@ import { createRabbitState } from "../src/rabbit/state.ts";
 import {
   createFakeCommandContext,
   createFakeExtensionApi,
+  createFakeSubagentRpcClient,
   fakeModelSupportingMax,
 } from "./support/fakes.ts";
 
@@ -23,7 +24,11 @@ test("registers exactly super+alt+r, nothing else", () => {
 test("shortcut toggles the same state as /rabbit toggle (single code path)", async () => {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
-  registerRabbitCommand(api as unknown as ExtensionAPI, state);
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    createFakeSubagentRpcClient() as never,
+  );
   registerRabbitShortcut(api as unknown as ExtensionAPI, state);
   const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });
 

@@ -6,17 +6,19 @@ import { createRabbitState } from "../src/rabbit/state.ts";
 import {
   createFakeCommandContext,
   createFakeExtensionApi,
+  createFakeSubagentRpcClient,
   fakeModelSupportingMax,
 } from "./support/fakes.ts";
 
 function setup() {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
-  registerRabbitCommand(api as unknown as ExtensionAPI, state);
+  const rpc = createFakeSubagentRpcClient();
+  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never);
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, ctx, notifications };
+  return { api, state, ctx, notifications, rpc };
 }
 
 async function run(
@@ -70,6 +72,35 @@ test("/rabbit status reports the mode without changing it", async () => {
   assert.equal(state.mode(), "off");
   assert.equal(notifications.length, 1);
   assert.match(notifications[0]?.message ?? "", /RabbitMode: off/);
+});
+
+test("/rabbit status reports pi-subagents availability via ping", async () => {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const rpc = createFakeSubagentRpcClient({ pingBehavior: "success", pingVersion: 1 });
+  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never);
+  const { ctx, notifications } = createFakeCommandContext({
+    model: fakeModelSupportingMax(),
+  });
+
+  await run(api, ctx, "status");
+
+  assert.equal(rpc.pingCallCount(), 1);
+  assert.match(notifications[0]?.message ?? "", /pi-subagents: verfügbar \(RPC v1\)/);
+});
+
+test("/rabbit status reports pi-subagents as unreachable on ping timeout", async () => {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const rpc = createFakeSubagentRpcClient({ pingBehavior: "timeout" });
+  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never);
+  const { ctx, notifications } = createFakeCommandContext({
+    model: fakeModelSupportingMax(),
+  });
+
+  await run(api, ctx, "status");
+
+  assert.match(notifications[0]?.message ?? "", /pi-subagents: nicht erreichbar/);
 });
 
 test("/rabbit stop reports no active run in Phase 1-2", async () => {

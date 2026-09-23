@@ -3,9 +3,30 @@ import type {
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import type { RabbitStateApi } from "./state.ts";
+import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
 
-function formatStatus(state: RabbitStateApi): string {
-  const lines = [`RabbitMode: ${state.mode()}`];
+/**
+ * A short ping, not a hard dependency: `/rabbit status` should stay fast
+ * and usable even when `pi-subagents` isn't installed at all — it just
+ * reports that instead of hanging on the client's default timeout.
+ */
+const STATUS_PING_TIMEOUT_MS = 400;
+
+async function describeSubagentsRuntime(rpc: SubagentRpcClient): Promise<string> {
+  try {
+    const reply = await rpc.ping(STATUS_PING_TIMEOUT_MS);
+    if (!reply.success) return `pi-subagents: Fehler (${reply.error.code})`;
+    return `pi-subagents: verfügbar (RPC v${reply.data.version})`;
+  } catch {
+    return "pi-subagents: nicht erreichbar (nicht installiert oder nicht geladen)";
+  }
+}
+
+async function formatStatus(
+  state: RabbitStateApi,
+  rpc: SubagentRpcClient,
+): Promise<string> {
+  const lines = [`RabbitMode: ${state.mode()}`, await describeSubagentsRuntime(rpc)];
   const permissionLevel = state.observedPermissionLevel();
   const workflowPhase = state.observedWorkflowPhase();
   if (permissionLevel !== undefined) {
@@ -30,10 +51,11 @@ function formatStatus(state: RabbitStateApi): string {
 export function registerRabbitCommand(
   pi: ExtensionAPI,
   state: RabbitStateApi,
+  rpc: SubagentRpcClient,
 ): void {
   pi.registerCommand("rabbit", {
     description:
-      "RabbitMode (Phase 1-2 Grundgerüst): on|off|status|stop — noch keine Orchestrierung",
+      "RabbitMode (Phase 1-6 Grundgerüst): on|off|status|stop — noch keine Orchestrierung",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const sub = args.trim().toLowerCase();
       switch (sub) {
@@ -48,7 +70,7 @@ export function registerRabbitCommand(
           state.deactivate(ctx);
           return;
         case "status":
-          ctx.ui.notify(formatStatus(state), "info");
+          ctx.ui.notify(await formatStatus(state, rpc), "info");
           return;
         case "stop":
           ctx.ui.notify(
