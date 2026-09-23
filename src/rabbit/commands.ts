@@ -15,8 +15,10 @@ import {
   type RabbitBundledRole,
 } from "../orchestration/agent-factory.ts";
 import type { DynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
-import { runWorkflow, type WorkflowRunResult, type WorkflowStepResult } from "../orchestration/workflow-runner.ts";
+import type { WorkflowRunResult, WorkflowStepResult } from "../orchestration/workflow-runner.ts";
 import type { WorkflowStepDefinition, WorkflowStepStatus } from "../orchestration/graph.ts";
+import type { WorkflowSessionHolder } from "../orchestration/workflow-session-holder.ts";
+import { MAX_WORKFLOW_REVISIONS } from "../orchestration/workflow-session.ts";
 
 /**
  * A short ping, not a hard dependency: `/rabbit status` should stay fast
@@ -62,8 +64,10 @@ const DEFINE_USAGE =
   '/rabbit define {"id":"...","purpose":"...","instructions":"...","tools":["read"],"task":"..."}';
 const WORKFLOW_USAGE =
   `/rabbit workflow {"steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
+const REPLAN_USAGE =
+  `/rabbit replan {"reason":"<konkreter neuer Befund>","steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
 const USAGE =
-  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>";
+  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>|replan <json>";
 
 const STEP_STATUS_GLYPH: Record<WorkflowStepStatus, string> = {
   pending: "○",
@@ -82,6 +86,12 @@ function formatWorkflowStep(step: WorkflowStepResult): string {
       ? `${message.slice(0, STEP_MESSAGE_MAX_LENGTH)}…`
       : message;
   return `${glyph} ${step.id}${truncated ? `: ${truncated}` : ""}`;
+}
+
+function extractSteps(parsed: unknown): WorkflowStepDefinition[] | undefined {
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const steps = (parsed as { steps?: unknown }).steps;
+  return Array.isArray(steps) ? (steps as WorkflowStepDefinition[]) : undefined;
 }
 
 function formatWorkflowResult(result: WorkflowRunResult): string {
@@ -110,10 +120,11 @@ export function registerRabbitCommand(
   state: RabbitStateApi,
   rpc: SubagentRpcClient,
   dynamicRoles: DynamicRoleRegistry,
+  workflowSessions: WorkflowSessionHolder,
 ): void {
   pi.registerCommand("rabbit", {
     description:
-      "RabbitMode (Phase 1-8 Grundgerüst): on|off|status|stop|spawn|define|workflow",
+      "RabbitMode (Phase 1-9 Grundgerüst): on|off|status|stop|spawn|define|workflow|replan",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const trimmed = args.trim();
       const { first, rest } = splitFirstWord(trimmed);
@@ -193,18 +204,53 @@ export function registerRabbitCommand(
             ctx.ui.notify(`Ungültiges JSON.\n${WORKFLOW_USAGE}`, "error");
             return;
           }
-          const steps =
-            typeof parsedWorkflow === "object" &&
-            parsedWorkflow !== null &&
-            Array.isArray((parsedWorkflow as { steps?: unknown }).steps)
-              ? ((parsedWorkflow as { steps: unknown[] }).steps as WorkflowStepDefinition[])
-              : undefined;
+          const steps = extractSteps(parsedWorkflow);
           if (!steps) {
             ctx.ui.notify(`Fehlendes "steps"-Array.\n${WORKFLOW_USAGE}`, "error");
             return;
           }
-          const result = await runWorkflow(rpc, steps);
+          const session = workflowSessions.startNew();
+          const result = await session.start(rpc, steps);
           ctx.ui.notify(formatWorkflowResult(result), result.ok ? "info" : "error");
+          return;
+        }
+        case "replan": {
+          if (rest === "") {
+            ctx.ui.notify(REPLAN_USAGE, "info");
+            return;
+          }
+          if (state.mode() !== "active") {
+            ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
+            return;
+          }
+          const session = workflowSessions.current();
+          if (!session) {
+            ctx.ui.notify("Kein laufender Workflow — erst /rabbit workflow starten.", "warning");
+            return;
+          }
+          let parsedReplan: unknown;
+          try {
+            parsedReplan = JSON.parse(rest);
+          } catch {
+            ctx.ui.notify(`Ungültiges JSON.\n${REPLAN_USAGE}`, "error");
+            return;
+          }
+          const steps = extractSteps(parsedReplan);
+          const reason =
+            typeof parsedReplan === "object" &&
+            parsedReplan !== null &&
+            typeof (parsedReplan as { reason?: unknown }).reason === "string"
+              ? (parsedReplan as { reason: string }).reason
+              : undefined;
+          if (!steps || !reason) {
+            ctx.ui.notify(`Fehlendes "reason" oder "steps".\n${REPLAN_USAGE}`, "error");
+            return;
+          }
+          const result = await session.replan(rpc, reason, steps);
+          ctx.ui.notify(
+            `Revision ${session.currentRevision()}/${MAX_WORKFLOW_REVISIONS}:\n${formatWorkflowResult(result)}`,
+            result.ok ? "info" : "error",
+          );
           return;
         }
         default:

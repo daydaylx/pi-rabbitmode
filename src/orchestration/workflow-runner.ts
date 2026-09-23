@@ -31,6 +31,13 @@ async function spawnStep(rpc: SubagentRpcClient, step: WorkflowStepDefinition) {
 export interface RunWorkflowOptions {
   maxParallel?: number;
   pollOptions?: PollStepOptions;
+  /**
+   * Step results to seed as already-`completed` before scheduling starts
+   * — used by `workflow-session.ts` (Phase 9) to re-run a revised graph
+   * without re-spawning steps a prior revision already finished. Any id
+   * not present in `steps` is ignored.
+   */
+  seedResults?: WorkflowStepResult[];
 }
 
 /**
@@ -53,6 +60,12 @@ export async function runWorkflow(
   const messageById = new Map<string, string | undefined>();
   const stepById = new Map(steps.map((s) => [s.id, s]));
   const active = new Set<Promise<void>>();
+
+  for (const seeded of options?.seedResults ?? []) {
+    if (!stepById.has(seeded.id)) continue;
+    statusById.set(seeded.id, seeded.status);
+    messageById.set(seeded.id, seeded.message);
+  }
 
   async function runStep(step: WorkflowStepDefinition): Promise<void> {
     statusById.set(step.id, "running");

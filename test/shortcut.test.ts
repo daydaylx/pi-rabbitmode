@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RABBIT_SHORTCUT, registerRabbitShortcut } from "../src/rabbit/shortcut.ts";
 import { registerRabbitCommand } from "../src/rabbit/commands.ts";
 import { createRabbitState } from "../src/rabbit/state.ts";
+import { createWorkflowSessionHolder } from "../src/orchestration/workflow-session-holder.ts";
 import {
   createFakeCommandContext,
   createFakeDynamicRoleRegistry,
@@ -30,6 +31,7 @@ test("shortcut toggles the same state as /rabbit toggle (single code path)", asy
     state,
     createFakeSubagentRpcClient() as never,
     createFakeDynamicRoleRegistry() as never,
+    createWorkflowSessionHolder(),
   );
   registerRabbitShortcut(api as unknown as ExtensionAPI, state);
   const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });

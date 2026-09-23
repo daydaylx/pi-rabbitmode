@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerRabbitCommand } from "../src/rabbit/commands.ts";
 import { createRabbitState } from "../src/rabbit/state.ts";
+import { createWorkflowSessionHolder } from "../src/orchestration/workflow-session-holder.ts";
 import {
   createFakeCommandContext,
   createFakeDynamicRoleRegistry,
@@ -16,11 +17,18 @@ function setup() {
   const state = createRabbitState(api as unknown as ExtensionAPI);
   const rpc = createFakeSubagentRpcClient();
   const dynamicRoles = createFakeDynamicRoleRegistry();
-  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never, dynamicRoles as never);
+  const workflowSessions = createWorkflowSessionHolder();
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    rpc as never,
+    dynamicRoles as never,
+    workflowSessions,
+  );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, ctx, notifications, rpc, dynamicRoles };
+  return { api, state, ctx, notifications, rpc, dynamicRoles, workflowSessions };
 }
 
 async function run(
@@ -85,6 +93,7 @@ test("/rabbit status reports pi-subagents availability via ping", async () => {
     state,
     rpc as never,
     createFakeDynamicRoleRegistry() as never,
+    createWorkflowSessionHolder(),
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
@@ -105,6 +114,7 @@ test("/rabbit status reports pi-subagents as unreachable on ping timeout", async
     state,
     rpc as never,
     createFakeDynamicRoleRegistry() as never,
+    createWorkflowSessionHolder(),
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
@@ -239,6 +249,81 @@ test("/rabbit workflow with a valid single step runs it end to end", async () =>
   assert.equal(notifications[1]?.type, "info");
   assert.match(notifications[1]?.message ?? "", /abgeschlossen: 1\/1/);
   assert.match(notifications[1]?.message ?? "", /✓ a/);
+});
+
+test("/rabbit replan requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, 'replan {"reason":"r","steps":[{"id":"b","role":"investigator","task":"x"}]}');
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+});
+
+test("/rabbit replan with no argument shows its usage", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "replan");
+
+  assert.match(notifications[1]?.message ?? "", /rabbit replan/);
+});
+
+test("/rabbit replan without a prior /rabbit workflow is rejected", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'replan {"reason":"r","steps":[{"id":"b","role":"investigator","task":"x"}]}');
+
+  assert.match(notifications[1]?.message ?? "", /Kein laufender Workflow/);
+});
+
+test("/rabbit replan with invalid JSON reports a JSON error", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, "replan {not json");
+
+  assert.match(notifications[2]?.message ?? "", /Ungültiges JSON/);
+});
+
+test('/rabbit replan without "reason" or "steps" reports a clear error', async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'replan {"steps":[{"id":"b","role":"investigator","task":"x"}]}');
+
+  assert.match(notifications[2]?.message ?? "", /Fehlendes "reason" oder "steps"/);
+});
+
+test("/rabbit replan with a valid reason and new step adds revision 2", async () => {
+  const { api, ctx, notifications, workflowSessions } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(
+    api,
+    ctx,
+    'replan {"reason":"found a gap","steps":[{"id":"b","role":"debugger","task":"y"}]}',
+  );
+
+  assert.equal(notifications[2]?.type, "info");
+  assert.match(notifications[2]?.message ?? "", /Revision 2\/3/);
+  assert.equal(workflowSessions.current()?.currentRevision(), 2);
+});
+
+test("a second /rabbit workflow call starts a fresh session, not a third revision", async () => {
+  const { api, ctx, workflowSessions } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(
+    api,
+    ctx,
+    'replan {"reason":"found a gap","steps":[{"id":"b","role":"debugger","task":"y"}]}',
+  );
+  const firstSession = workflowSessions.current();
+  assert.equal(firstSession?.currentRevision(), 2);
+
+  await run(api, ctx, 'workflow {"steps":[{"id":"c","role":"investigator","task":"z"}]}');
+
+  const secondSession = workflowSessions.current();
+  assert.notEqual(secondSession, firstSession);
+  assert.equal(secondSession?.currentRevision(), 1);
 });
 
 test("spawn/define/workflow never emit on an aurora-ui/* channel", async () => {

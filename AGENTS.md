@@ -2,7 +2,7 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–8** (Grundgerüst,
+Dieses Repository befindet sich in **Phase 1–9** (Grundgerüst,
 session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
 erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
 `aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
@@ -10,11 +10,12 @@ Animation —, v1-RPC-Client zu `pi-subagents`, `/rabbit spawn` für
 Basisrollen und drei mitgelieferte Audit-Rollen, `/rabbit define` für
 echte session-lokale Ephemeral-Agent-Erzeugung mit hart read-only
 begrenztem Tool-Zugriff, `/rabbit workflow` für einen deklarativen DAG mit
-Abhängigkeiten und begrenzter Parallelität — siehe README.md für
-Sicherheitsgrenzen und die noch unverifizierte Status-Polling-Annahme).
-Es gibt noch kein Replanning, keine Nested Delegation, keinen Writer und
-kein `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
-Original-Spezifikation liegt unter
+Abhängigkeiten und begrenzter Parallelität, `/rabbit replan` für
+begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen) — siehe
+README.md für Sicherheitsgrenzen und die noch unverifizierte
+Status-Polling-Annahme). Es gibt noch keine Nested Delegation, keinen
+Writer und kein `subagents:rpc:v2` in `pi-subagents` selbst. Die
+vollständige Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
 Testmatrix und Acceptance Criteria. Diese Datei fasst nur die Regeln
