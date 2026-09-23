@@ -1,0 +1,159 @@
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { emitRabbitModeChanged } from "./events.ts";
+
+export type RabbitMode = "off" | "active";
+
+/**
+ * Read-only mirror of the Aurora state bus, documented in
+ * `daydaylx/pi`'s `docs/rabbitmode-status-contract.md`. RabbitMode
+ * subscribes to the broadcast channel only — it never emits on
+ * `aurora-ui/state/request` (that would steal the shared `sessionEpoch`
+ * that Aurora's own provider tags its patches with) and never emits on
+ * `aurora-ui/state/patch` or `aurora-ui/state/snapshot` itself.
+ */
+const AURORA_STATE_PATCH_CHANNEL = "aurora-ui/state/patch";
+
+interface ObservedAuroraPatch {
+  permissions?: { level?: string; label?: string };
+  workflow?: { phase?: string; label?: string };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+/**
+ * Deliberately lenient: this only reads the two fields RabbitMode cares
+ * about (`permissions`, `workflow`) out of a much larger, versioned
+ * payload it does not own. See docs/rabbitmode-status-contract.md.
+ */
+function readObservedPatch(value: unknown): ObservedAuroraPatch | undefined {
+  if (!isRecord(value)) return undefined;
+  const patch = value.patch;
+  if (!isRecord(patch)) return undefined;
+
+  const result: ObservedAuroraPatch = {};
+
+  const permissions = patch.permissions;
+  if (
+    isRecord(permissions) &&
+    isOptionalString(permissions.level) &&
+    isOptionalString(permissions.label)
+  ) {
+    result.permissions = { level: permissions.level, label: permissions.label };
+  }
+
+  const workflow = patch.workflow;
+  if (
+    isRecord(workflow) &&
+    isOptionalString(workflow.phase) &&
+    isOptionalString(workflow.label)
+  ) {
+    result.workflow = { phase: workflow.phase, label: workflow.label };
+  }
+
+  return result;
+}
+
+export interface RabbitStateApi {
+  mode(): RabbitMode;
+  /** Last permission level observed on the Aurora bus. Display only. */
+  observedPermissionLevel(): string | undefined;
+  /** Last workflow phase observed on the Aurora bus. Display only. */
+  observedWorkflowPhase(): string | undefined;
+  activate(ctx: ExtensionContext): { changed: boolean };
+  deactivate(ctx: ExtensionContext): { changed: boolean; blocked: boolean };
+  /**
+   * Phase-2 stub: RabbitMode does not run any agents yet, so there is
+   * never an active run to protect. Phase 8+ (workflow graph / nested
+   * delegation) replaces this body without changing the signature or any
+   * caller.
+   */
+  hasActiveRun(): boolean;
+  /** Bind to `session_start`. */
+  reset(): void;
+  /** Bind to `session_shutdown`. */
+  dispose(): void;
+}
+
+export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
+  let mode: RabbitMode = "off";
+  let observedPermissionLevel: string | undefined;
+  let observedWorkflowPhase: string | undefined;
+  let unsubscribe: (() => void) | undefined;
+
+  function subscribeAuroraPatches(): void {
+    unsubscribe?.();
+    unsubscribe = pi.events.on(AURORA_STATE_PATCH_CHANNEL, (value) => {
+      const observed = readObservedPatch(value);
+      if (!observed) return;
+      if (observed.permissions?.level !== undefined) {
+        observedPermissionLevel = observed.permissions.level;
+      }
+      if (observed.workflow?.phase !== undefined) {
+        observedWorkflowPhase = observed.workflow.phase;
+      }
+    });
+  }
+
+  const api: RabbitStateApi = {
+    mode: () => mode,
+    observedPermissionLevel: () => observedPermissionLevel,
+    observedWorkflowPhase: () => observedWorkflowPhase,
+
+    hasActiveRun: () => false,
+
+    activate(ctx) {
+      if (mode === "active") {
+        ctx.ui.notify("RabbitMode ist bereits aktiv.", "info");
+        return { changed: false };
+      }
+      mode = "active";
+      emitRabbitModeChanged(pi, mode);
+      ctx.ui.notify(
+        "RabbitMode aktiviert (Grundgerüst — noch keine Orchestrierung).",
+        "info",
+      );
+      return { changed: true };
+    },
+
+    deactivate(ctx) {
+      if (api.hasActiveRun()) {
+        ctx.ui.notify(
+          "RabbitMode läuft gerade — erst /rabbit stop verwenden.",
+          "warning",
+        );
+        return { changed: false, blocked: true };
+      }
+      if (mode === "off") {
+        ctx.ui.notify("RabbitMode ist bereits aus.", "info");
+        return { changed: false, blocked: false };
+      }
+      mode = "off";
+      emitRabbitModeChanged(pi, mode);
+      ctx.ui.notify("RabbitMode deaktiviert.", "info");
+      return { changed: true, blocked: false };
+    },
+
+    reset() {
+      mode = "off";
+      observedPermissionLevel = undefined;
+      observedWorkflowPhase = undefined;
+      subscribeAuroraPatches();
+    },
+
+    dispose() {
+      unsubscribe?.();
+      unsubscribe = undefined;
+    },
+  };
+
+  return api;
+}

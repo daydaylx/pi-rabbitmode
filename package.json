@@ -1,0 +1,46 @@
+{
+  "name": "pi-rabbitmode",
+  "version": "0.1.0",
+  "description": "Opt-in orchestration layer for Pi (Phase 1-2: session state + /rabbit command, no orchestration yet)",
+  "author": "daydaylx",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daydaylx/pi-rabbitmode.git"
+  },
+  "homepage": "https://github.com/daydaylx/pi-rabbitmode#readme",
+  "bugs": {
+    "url": "https://github.com/daydaylx/pi-rabbitmode/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "rabbitmode",
+    "orchestration"
+  ],
+  "files": [
+    "src/**/*.ts",
+    "docs/**/*",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "npm run typecheck",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "verify": "npm run typecheck && npm run test"
+  },
+  "pi": {
+    "extensions": ["./src/extension/index.ts"]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "@types/node": "^22.0.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "Pi RabbitMode Implementation Package",
+  "target_repository": "daydaylx/pi-rabbitmode",
+  "activation": "Super+Alt+R",
+  "command": "/rabbit",
+  "required_thinking": "max",
+  "workflow_requirement_for_mutation": "work",
+  "permission_escalation": false,
+  "dynamic_agents": "ephemeral_by_default",
+  "max_nested_depth": 2,
+  "max_parallel_agents_default": 3,
+  "mutation_concurrency_default": 1,
+  "execution_runtime": "daydaylx/pi-subagents",
+  "ui_owner": "daydaylx/pi Aurora",
+  "visual_identity": "cold electric blue / depth effects",
+  "baseline": {
+    "pi_main": "d6a87553d23d7f54d87a2fc3c04e0b985b98a22b",
+    "pi_subagents_pin_seen_in_settings": "75e6a8685ccfc7968816a059a10173854f0d3c8a"
+  },
+  "status": "implementation_specification_no_source_code",
+  "rabbit_tui_effect_policy": {
+    "default_expressive": "intentionally_excessive",
+    "annoying_is_acceptable": true,
+    "goal": "special_mode_overdrive_identity",
+    "must_respect": [
+      "readability",
+      "input_usability",
+      "semantic_status_colors",
+      "small_terminals",
+      "performance",
+      "reduced_motion",
+      "motion_off"
+    ],
+    "reuse_aurora_motion_engine": true
+  }
+}

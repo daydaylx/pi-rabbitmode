@@ -1,0 +1,112 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createRabbitState } from "../src/rabbit/state.ts";
+import { createFakeCommandContext, createFakeExtensionApi } from "./support/fakes.ts";
+
+function setup() {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const { ctx, notifications } = createFakeCommandContext();
+  return { api, state, ctx, notifications };
+}
+
+test("starts off", () => {
+  const { state } = setup();
+  assert.equal(state.mode(), "off");
+});
+
+test("activate: off -> active, emits once", () => {
+  const { api, state, ctx } = setup();
+  const result = state.activate(ctx as never);
+
+  assert.equal(result.changed, true);
+  assert.equal(state.mode(), "active");
+  assert.equal(api.events.emitted.length, 1);
+  assert.deepEqual(api.events.emitted[0]?.data, { mode: "active" });
+});
+
+test("activate while already active is a no-op, no second event", () => {
+  const { api, state, ctx } = setup();
+  state.activate(ctx as never);
+  const second = state.activate(ctx as never);
+
+  assert.equal(second.changed, false);
+  assert.equal(api.events.emitted.length, 1);
+});
+
+test("deactivate: active -> off, emits once", () => {
+  const { api, state, ctx } = setup();
+  state.activate(ctx as never);
+  const result = state.deactivate(ctx as never);
+
+  assert.deepEqual(result, { changed: true, blocked: false });
+  assert.equal(state.mode(), "off");
+  assert.equal(api.events.emitted.length, 2);
+  assert.deepEqual(api.events.emitted[1]?.data, { mode: "off" });
+});
+
+test("deactivate while already off is a no-op", () => {
+  const { api, state, ctx } = setup();
+  const result = state.deactivate(ctx as never);
+
+  assert.equal(result.changed, false);
+  assert.equal(result.blocked, false);
+  assert.equal(api.events.emitted.length, 0);
+});
+
+test("hasActiveRun is always false in Phase 1-2 (documented stub)", () => {
+  const { state, ctx } = setup();
+  assert.equal(state.hasActiveRun(), false);
+  state.activate(ctx as never);
+  assert.equal(state.hasActiveRun(), false);
+});
+
+test("two independent instances never share state (no restart leak)", () => {
+  const { state: first, ctx } = setup();
+  first.activate(ctx as never);
+  const { state: second } = setup();
+
+  assert.equal(first.mode(), "active");
+  assert.equal(second.mode(), "off");
+});
+
+test("reset() returns to off and clears observed bus values", () => {
+  const { api, state, ctx } = setup();
+  state.reset();
+  state.activate(ctx as never);
+  api.events.emit("aurora-ui/state/patch", {
+    patch: { permissions: { level: "yolo-full", label: "YOLO" } },
+  });
+  assert.equal(state.observedPermissionLevel(), "yolo-full");
+
+  state.reset();
+
+  assert.equal(state.mode(), "off");
+  assert.equal(state.observedPermissionLevel(), undefined);
+  assert.equal(state.observedWorkflowPhase(), undefined);
+});
+
+test("dispose() unsubscribes from the Aurora bus", () => {
+  const { api, state } = setup();
+  state.reset();
+  state.dispose();
+
+  api.events.emit("aurora-ui/state/patch", {
+    patch: { permissions: { level: "yolo-full" } },
+  });
+
+  assert.equal(state.observedPermissionLevel(), undefined);
+});
+
+test("never emits on an aurora-ui/* channel (RabbitMode never writes Aurora state)", () => {
+  const { api, state, ctx } = setup();
+  state.reset();
+  state.activate(ctx as never);
+  state.deactivate(ctx as never);
+
+  const auroraEmits = api.events.emitted.filter((entry) =>
+    entry.channel.startsWith("aurora-ui/"),
+  );
+  assert.equal(auroraEmits.length, 0);
+});
