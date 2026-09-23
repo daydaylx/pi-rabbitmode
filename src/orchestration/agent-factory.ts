@@ -58,6 +58,14 @@ export function rabbitBundledRoleRuntimeName(role: RabbitBundledRole): string {
 export interface SpawnRoleResult {
   ok: boolean;
   message: string;
+  /**
+   * `details.runId` from a successful spawn reply (`Details` in
+   * `~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/shared/
+   * types/results.ts`), when present. `spawn` always launches detached/
+   * async (`spawnParams()` forces it), so this is the only handle
+   * `graph.ts`'s scheduler has to later poll `status` for completion.
+   */
+  runId?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,9 +82,11 @@ function interpretSpawnReply(
       message: `Spawn fehlgeschlagen (${reply.error.code}): ${reply.error.message}`,
     };
   }
-  const text =
-    isRecord(reply.data) && typeof reply.data.text === "string" ? reply.data.text : undefined;
-  return { ok: true, message: text && text.length > 0 ? text : fallbackMessage };
+  const data = isRecord(reply.data) ? reply.data : undefined;
+  const text = typeof data?.text === "string" ? data.text : undefined;
+  const details = isRecord(data?.details) ? data.details : undefined;
+  const runId = typeof details?.runId === "string" ? details.runId : undefined;
+  return { ok: true, message: text && text.length > 0 ? text : fallbackMessage, runId };
 }
 
 /**

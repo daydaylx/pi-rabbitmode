@@ -191,7 +191,57 @@ test("/rabbit define with valid JSON calls the dynamic role registry and reports
   assert.equal(notifications[1]?.type, "info");
 });
 
-test("spawn/define never emit on an aurora-ui/* channel", async () => {
+test("/rabbit workflow requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+});
+
+test("/rabbit workflow with no argument shows its usage", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "workflow");
+
+  assert.match(notifications[1]?.message ?? "", /rabbit workflow/);
+});
+
+test("/rabbit workflow with invalid JSON reports a JSON error", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "workflow {not json");
+
+  assert.match(notifications[1]?.message ?? "", /Ungültiges JSON/);
+});
+
+test('/rabbit workflow without a "steps" array reports a clear error', async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"foo":"bar"}');
+
+  assert.match(notifications[1]?.message ?? "", /steps/);
+});
+
+test("/rabbit workflow with an invalid graph reports the validation error, not a crash", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"not-a-role","task":"x"}]}');
+
+  assert.equal(notifications[1]?.type, "error");
+  assert.match(notifications[1]?.message ?? "", /Workflow ungültig/);
+});
+
+test("/rabbit workflow with a valid single step runs it end to end", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"look around"}]}');
+
+  assert.equal(notifications[1]?.type, "info");
+  assert.match(notifications[1]?.message ?? "", /abgeschlossen: 1\/1/);
+  assert.match(notifications[1]?.message ?? "", /✓ a/);
+});
+
+test("spawn/define/workflow never emit on an aurora-ui/* channel", async () => {
   const { api, ctx } = setup();
   await run(api, ctx, "on");
   await run(
@@ -200,6 +250,7 @@ test("spawn/define never emit on an aurora-ui/* channel", async () => {
     'define {"id":"api-checker","purpose":"p","instructions":"i","tools":["read"],"task":"t"}',
   );
   await run(api, ctx, "spawn investigator find the bug");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
   await run(api, ctx, "off");
 
   const auroraEmits = api.events.emitted.filter((entry) =>

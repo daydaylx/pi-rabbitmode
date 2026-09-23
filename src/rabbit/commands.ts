@@ -15,6 +15,8 @@ import {
   type RabbitBundledRole,
 } from "../orchestration/agent-factory.ts";
 import type { DynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
+import { runWorkflow, type WorkflowRunResult, type WorkflowStepResult } from "../orchestration/workflow-runner.ts";
+import type { WorkflowStepDefinition, WorkflowStepStatus } from "../orchestration/graph.ts";
 
 /**
  * A short ping, not a hard dependency: `/rabbit status` should stay fast
@@ -58,8 +60,40 @@ function splitFirstWord(text: string): { first: string; rest: string } {
 const SPAWNABLE_ROLES = [...BASELINE_ROLES, ...RABBIT_BUNDLED_ROLES];
 const DEFINE_USAGE =
   '/rabbit define {"id":"...","purpose":"...","instructions":"...","tools":["read"],"task":"..."}';
+const WORKFLOW_USAGE =
+  `/rabbit workflow {"steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
 const USAGE =
-  `Nutzung: /rabbit on|off|status|stop|spawn <${SPAWNABLE_ROLES.join("|")}> <Aufgabe>|define <json>`;
+  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>";
+
+const STEP_STATUS_GLYPH: Record<WorkflowStepStatus, string> = {
+  pending: "○",
+  running: "●",
+  completed: "✓",
+  failed: "✗",
+  skipped: "⊘",
+};
+const STEP_MESSAGE_MAX_LENGTH = 300;
+
+function formatWorkflowStep(step: WorkflowStepResult): string {
+  const glyph = STEP_STATUS_GLYPH[step.status];
+  const message = step.message ?? "";
+  const truncated =
+    message.length > STEP_MESSAGE_MAX_LENGTH
+      ? `${message.slice(0, STEP_MESSAGE_MAX_LENGTH)}…`
+      : message;
+  return `${glyph} ${step.id}${truncated ? `: ${truncated}` : ""}`;
+}
+
+function formatWorkflowResult(result: WorkflowRunResult): string {
+  if (!result.ok && result.steps.length === 0) {
+    return `Workflow ungültig: ${result.error ?? "unbekannter Fehler"}`;
+  }
+  const completed = result.steps.filter((s) => s.status === "completed").length;
+  const header = result.ok
+    ? `Workflow abgeschlossen: ${completed}/${result.steps.length} Steps erfolgreich.`
+    : `Workflow fehlgeschlagen: ${completed}/${result.steps.length} Steps erfolgreich.`;
+  return [header, ...result.steps.map(formatWorkflowStep)].join("\n");
+}
 
 /**
  * `/rabbit on|off|status|stop|spawn|define`, plus a bare/`toggle` alias.
@@ -79,7 +113,7 @@ export function registerRabbitCommand(
 ): void {
   pi.registerCommand("rabbit", {
     description:
-      "RabbitMode (Phase 1-7 Grundgerüst): on|off|status|stop|spawn|define — kein Workflow-Graph",
+      "RabbitMode (Phase 1-8 Grundgerüst): on|off|status|stop|spawn|define|workflow",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const trimmed = args.trim();
       const { first, rest } = splitFirstWord(trimmed);
@@ -141,6 +175,36 @@ export function registerRabbitCommand(
           }
           const result = await spawnDynamicRole(rpc, dynamicRoles, ctx.cwd, parsed);
           ctx.ui.notify(result.message, result.ok ? "info" : "error");
+          return;
+        }
+        case "workflow": {
+          if (rest === "") {
+            ctx.ui.notify(WORKFLOW_USAGE, "info");
+            return;
+          }
+          if (state.mode() !== "active") {
+            ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
+            return;
+          }
+          let parsedWorkflow: unknown;
+          try {
+            parsedWorkflow = JSON.parse(rest);
+          } catch {
+            ctx.ui.notify(`Ungültiges JSON.\n${WORKFLOW_USAGE}`, "error");
+            return;
+          }
+          const steps =
+            typeof parsedWorkflow === "object" &&
+            parsedWorkflow !== null &&
+            Array.isArray((parsedWorkflow as { steps?: unknown }).steps)
+              ? ((parsedWorkflow as { steps: unknown[] }).steps as WorkflowStepDefinition[])
+              : undefined;
+          if (!steps) {
+            ctx.ui.notify(`Fehlendes "steps"-Array.\n${WORKFLOW_USAGE}`, "error");
+            return;
+          }
+          const result = await runWorkflow(rpc, steps);
+          ctx.ui.notify(formatWorkflowResult(result), result.ok ? "info" : "error");
           return;
         }
         default:

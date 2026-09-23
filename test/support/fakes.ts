@@ -191,10 +191,12 @@ export function createFakeSubagentRpcClient(options?: {
   pingVersion?: number;
   spawnBehavior?: "success" | "error" | "timeout";
   spawnText?: string;
+  statusBehavior?: "completed" | "failed";
 }) {
   const behavior = options?.pingBehavior ?? "success";
   const version = options?.pingVersion ?? 1;
   const spawnBehavior = options?.spawnBehavior ?? "success";
+  const statusBehavior = options?.statusBehavior ?? "completed";
   let pingCalls = 0;
   const spawnCalls: unknown[] = [];
 
@@ -246,7 +248,24 @@ export function createFakeSubagentRpcClient(options?: {
       requestId: "fake",
       method: "spawn",
       success: true,
-      data: { text: options?.spawnText ?? "fake spawn started." },
+      data: {
+        text: options?.spawnText ?? "fake spawn started.",
+        details: { runId: "fake-run" },
+      },
+    };
+  }
+
+  async function status() {
+    const failed = statusBehavior === "failed";
+    return {
+      version: 1,
+      requestId: "fake",
+      method: "status",
+      success: true,
+      data: {
+        text: failed ? "fake run failed." : "fake run completed.",
+        details: { results: [{ exitCode: failed ? 1 : 0 }] },
+      },
     };
   }
 
@@ -254,6 +273,7 @@ export function createFakeSubagentRpcClient(options?: {
     call: async (method: string, params?: unknown) => {
       if (method === "ping") return ping();
       if (method === "spawn") return spawn(params);
+      if (method === "status") return status();
       throw new Error(`fake subagents RPC client: unsupported method "${method}" in test`);
     },
     ping,

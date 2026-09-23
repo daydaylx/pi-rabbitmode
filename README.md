@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–7 Grundgerüst
+## Status: Phase 1–8 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
@@ -46,14 +46,23 @@ Diese Version implementiert ausschließlich:
   `ls` — nie `bash`/`write`/`edit`), maximal 8 dynamische Rollen pro
   Session, Frontmatter-Injection-Schutz für nutzergenerierten Text. Siehe
   „Bewusste Ausnahme" unten.
+- `/rabbit workflow <json>` — deklarativer DAG (`src/orchestration/
+  graph.ts`): mehrere Steps mit `dependsOn`, begrenzter Parallelität
+  (Default 3, `docs/spec/01_ARCHITECTURE.md` §7), Zyklus-/Unknown-Dependency-
+  Validierung, transitivem Skip bei fehlgeschlagener Abhängigkeit — genau
+  das Beispiel-Fan-out aus `docs/spec/01_ARCHITECTURE.md` §5
+  (`permission-auditor`/`recovery-auditor`/`architecture-auditor` →
+  Synthese-Step). Steps referenzieren nur bereits installierte Rollen
+  (Baseline oder mitgelieferte Bundled-Rollen) — inline `/rabbit
+  define`-Definitionen innerhalb eines Workflow-Steps sind bewusst noch
+  nicht eingebaut (siehe „Grenze in Phase 8" unten).
 
-**Es gibt noch keinen Workflow-Graph, keine Parallelität, kein
-Replanning.** `/rabbit on` schaltet einen internen Zustand um, erzwingt
-`max`-Thinking und wechselt Theme/Widget — es verändert nie
-Permission-Level oder Workflow-Mode, auch nicht indirekt. `Super+R`
-(Resume) und `Shift+Tab` (Workflow-Menü) bleiben unverändert; RabbitMode
-registriert ausschließlich die neue, bisher unbelegte Bindung
-`Super+Alt+R`.
+**Es gibt noch kein Replanning und keinen Writer.** `/rabbit on` schaltet
+einen internen Zustand um, erzwingt `max`-Thinking und wechselt
+Theme/Widget — es verändert nie Permission-Level oder Workflow-Mode, auch
+nicht indirekt. `Super+R` (Resume) und `Shift+Tab` (Workflow-Menü) bleiben
+unverändert; RabbitMode registriert ausschließlich die neue, bisher
+unbelegte Bindung `Super+Alt+R`.
 
 ### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
 
@@ -129,6 +138,23 @@ Verzichtet wird hier bewusst weiterhin auf: Schreib-/Ausführungs-Tools für
 dynamische Rollen, Nested-Delegation dynamischer Rollen und ein
 `v2`-Protokoll in `pi-subagents` selbst.
 
+### Bewusste Grenze in Phase 8: Status-Polling ist best-effort, nicht live verifiziert
+
+`spawn` startet immer detached/async (von `pi-subagents` selbst erzwungen);
+um zu wissen, wann ein Step fertig ist, pollt `src/orchestration/
+status-adapter.ts` die `status`-RPC-Methode. Die genaue Antwortstruktur für
+einen noch laufenden vs. fertigen Run ist aus dem `Details`/`SingleResult`-
+Typ in `~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/shared/
+types/results.ts` **statisch erschlossen, nicht gegen einen echten Lauf
+verifiziert** — der einzige verfügbare Live-Klon hat bereits nicht
+committete Arbeit einer anderen Session (siehe Phase-6-Commit). Die
+Interpretation ist deshalb bewusst in einer einzigen Funktion
+(`interpretStatusReply`) isoliert und mit einer auffälligen ⚠️-Markierung
+versehen, damit sie an genau einer Stelle korrigiert werden kann, sobald
+sie gegen einen echten Lauf geprüft wurde. Der DAG-Scheduler selbst
+(Abhängigkeiten, Parallelitätsgrenze, Skip-Kaskaden) ist davon unabhängig
+und vollständig getestet.
+
 ## Architektur (Zielbild, nicht vollständig umgesetzt)
 
 ```text
@@ -158,7 +184,8 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit status` | zeigt Mode, `pi-subagents`-Erreichbarkeit und, rein informativ, den zuletzt auf dem Aurora-Bus beobachteten Permission-Level/Workflow-Mode |
 | `/rabbit spawn <rolle> <Aufgabe>` | startet `investigator`\|`debugger`\|`verifier`\|`permission-auditor`\|`recovery-auditor`\|`architecture-auditor` (nur bei aktivem RabbitMode) |
 | `/rabbit define <json>` | definiert und startet eine neue, session-lokale Rolle (read-only, siehe oben; nur bei aktivem RabbitMode) |
-| `/rabbit stop` | meldet noch immer "kein aktiver Rabbit-Run" — es gibt noch keinen Workflow-Graph, der einen Run zu stoppen hätte |
+| `/rabbit workflow <json>` | führt einen deklarativen DAG aus Steps mit Abhängigkeiten aus (siehe oben; nur bei aktivem RabbitMode) |
+| `/rabbit stop` | meldet noch immer "kein aktiver Rabbit-Run" — Interrupt/Stop für einen laufenden Workflow ist noch nicht angebunden |
 
 Der State ist rein session-lokal (In-Memory), wird nirgends persistiert und
 ist nach einem Neustart immer `off`.
@@ -184,11 +211,11 @@ Arbeitsbaum selbst).
 
 Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
 öffentlicher Aurora-Motion-Hook existiert) · Phase 6b `subagents:rpc:v2`
-(eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8
-Workflow-Graph (Fan-out/Fan-in, Abhängigkeiten, mehrstufige Phasen) ·
-Phase 9 Replanning · Phase 10 Nested Delegation · Phase 11 Writer ·
-Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·
-Phase 14 Benchmark.
+(eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8b
+Status-Polling live verifizieren · inline `/rabbit define` innerhalb
+eines Workflow-Steps · Phase 9 Replanning · Phase 10 Nested Delegation ·
+Phase 11 Writer · Phase 12 Verification-Integration · Phase 13 Persistenz
+(explizit) · Phase 14 Benchmark.
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 
