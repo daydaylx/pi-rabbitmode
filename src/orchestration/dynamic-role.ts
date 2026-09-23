@@ -1,0 +1,252 @@
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import * as path from "node:path";
+
+/**
+ * Genuine ephemeral role creation — the Root Supervisor (the model driving
+ * RabbitMode) defines a brand-new role's purpose/instructions/tools at
+ * runtime, RabbitMode writes it as a project-local `.pi/agents/` `.md`
+ * file `pi-subagents` already discovers
+ * (`~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/agents/
+ * agent-discovery.ts`: `resolveNearestProjectAgentDirs` reads
+ * `<projectRoot>/.pi/agents/`, recursively), spawns it, and deletes the
+ * file again.
+ *
+ * This is a deliberate, explicit exception to `docs/spec/08_RISKS_AND_
+ * NON_GOALS.md`'s V1 non-goal "keine automatische persistente
+ * Agent-Dateien" — the file is real and briefly on disk (pi-subagents has
+ * no other way to discover a role), but the *intent* stays ephemeral and
+ * session-scoped: tracked in a session-local registry, capped per
+ * session, and deleted on every path out (success, failure, or
+ * `session_shutdown` as a fallback net for anything that didn't clean up
+ * normally).
+ *
+ * Because this writes a file that grants the resulting role real tool
+ * access, the safety envelope is hard-coded, not advisory:
+ *   - `tools` must be a subset of `DYNAMIC_ROLE_TOOL_ALLOWLIST` — read-only
+ *     only (`read`, `grep`, `find`, `ls`). No `bash`/`write`/`edit`/etc.
+ *     can ever reach a dynamically fabricated role in this version.
+ *   - every free-text field that lands in the frontmatter block is
+ *     validated against injection into that block (see
+ *     `assertFrontmatterSafe`) — a hostile or malformed `purpose` cannot
+ *     smuggle extra frontmatter keys past the parser
+ *     (`~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/agents/
+ *     frontmatter.ts`: the block ends at the first `\n---`).
+ *   - at most `MAX_DYNAMIC_ROLES_PER_SESSION` role files may exist at
+ *     once (`docs/spec/01_ARCHITECTURE.md` §7: "dynamische Agenten pro
+ *     Rabbit-Run: 8").
+ */
+export const DYNAMIC_ROLE_TOOL_ALLOWLIST = ["read", "grep", "find", "ls"] as const;
+export type DynamicRoleTool = (typeof DYNAMIC_ROLE_TOOL_ALLOWLIST)[number];
+
+export const DYNAMIC_ROLE_PACKAGE = "rabbit-dynamic";
+export const MAX_DYNAMIC_ROLES_PER_SESSION = 8;
+
+const ID_PATTERN = /^[a-z][a-z0-9-]{1,40}$/;
+const MAX_PURPOSE_LENGTH = 300;
+const MAX_INSTRUCTIONS_LENGTH = 4000;
+const MAX_TASK_LENGTH = 4000;
+
+export interface DynamicRoleRequest {
+  id: string;
+  purpose: string;
+  instructions: string;
+  tools: string[];
+  task: string;
+}
+
+export type DynamicRoleValidation =
+  | { ok: true; request: DynamicRoleRequest }
+  | { ok: false; error: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * A field that lands inside the `---`-delimited frontmatter block must
+ * never contain a newline (each frontmatter line is parsed independently)
+ * or a `---` run (which would end the block early and let the rest of
+ * the text be parsed as further frontmatter keys, including `tools`).
+ */
+function isFrontmatterSafeSingleLine(text: string, maxLength: number): boolean {
+  return (
+    text.length > 0 &&
+    text.length <= maxLength &&
+    !text.includes("\n") &&
+    !text.includes("\r") &&
+    !text.includes("---")
+  );
+}
+
+export function validateDynamicRoleRequest(raw: unknown): DynamicRoleValidation {
+  if (!isRecord(raw)) {
+    return { ok: false, error: "Rollendefinition muss ein JSON-Objekt sein." };
+  }
+  const { id, purpose, instructions, tools, task } = raw;
+
+  if (typeof id !== "string" || !ID_PATTERN.test(id)) {
+    return {
+      ok: false,
+      error: 'id muss klein geschrieben sein und zu ^[a-z][a-z0-9-]{1,40}$ passen (z.B. "api-contract-checker").',
+    };
+  }
+  if (typeof purpose !== "string" || !isFrontmatterSafeSingleLine(purpose, MAX_PURPOSE_LENGTH)) {
+    return {
+      ok: false,
+      error: `purpose muss eine einzeilige Zeichenkette ohne "---" sein (max. ${MAX_PURPOSE_LENGTH} Zeichen).`,
+    };
+  }
+  if (
+    typeof instructions !== "string" ||
+    instructions.trim().length === 0 ||
+    instructions.length > MAX_INSTRUCTIONS_LENGTH
+  ) {
+    return {
+      ok: false,
+      error: `instructions darf nicht leer sein (max. ${MAX_INSTRUCTIONS_LENGTH} Zeichen).`,
+    };
+  }
+  if (typeof task !== "string" || task.trim().length === 0 || task.length > MAX_TASK_LENGTH) {
+    return {
+      ok: false,
+      error: `task darf nicht leer sein (max. ${MAX_TASK_LENGTH} Zeichen).`,
+    };
+  }
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return {
+      ok: false,
+      error: `tools muss eine nicht-leere Liste sein, Teilmenge von [${DYNAMIC_ROLE_TOOL_ALLOWLIST.join(", ")}].`,
+    };
+  }
+  const normalizedTools: string[] = [];
+  for (const tool of tools) {
+    if (typeof tool !== "string" || !(DYNAMIC_ROLE_TOOL_ALLOWLIST as readonly string[]).includes(tool)) {
+      return {
+        ok: false,
+        error: `Tool "${String(tool)}" ist nicht erlaubt. Dynamische Rollen dürfen nur [${DYNAMIC_ROLE_TOOL_ALLOWLIST.join(", ")}] nutzen — kein bash/write/edit.`,
+      };
+    }
+    if (!normalizedTools.includes(tool)) normalizedTools.push(tool);
+  }
+
+  return {
+    ok: true,
+    request: { id, purpose, instructions: instructions.trim(), tools: normalizedTools, task: task.trim() },
+  };
+}
+
+/** Parses and validates the JSON argument to `/rabbit define`. */
+export function parseDynamicRoleRequest(rawJson: string): DynamicRoleValidation {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Ungültiges JSON. Erwartet: {"id":"...","purpose":"...","instructions":"...","tools":["read"],"task":"..."}',
+    };
+  }
+  return validateDynamicRoleRequest(parsed);
+}
+
+export function dynamicRoleRuntimeName(id: string): string {
+  return `${DYNAMIC_ROLE_PACKAGE}.${id}`;
+}
+
+function buildRoleFileContent(request: DynamicRoleRequest): string {
+  const frontmatter = [
+    `name: ${request.id}`,
+    `description: "${request.purpose.replace(/"/g, "'")}"`,
+    `tools: ${request.tools.join(", ")}`,
+    `package: ${DYNAMIC_ROLE_PACKAGE}`,
+    `defaultContext: fresh`,
+    `inheritProjectContext: true`,
+    `inheritSkills: false`,
+    `timeoutMs: 600000`,
+  ].join("\n");
+  return `---\n${frontmatter}\n---\n\n${request.instructions}\n`;
+}
+
+export interface WrittenDynamicRole {
+  id: string;
+  runtimeName: string;
+  filePath: string;
+}
+
+export interface DynamicRoleRegistry {
+  /** Number of currently-tracked (not yet cleaned up) dynamic roles. */
+  size(): number;
+  /**
+   * Validates, writes the `.md` file under `<cwd>/.pi/agents/rabbit-dynamic/`,
+   * and tracks it for cleanup. Rejects once `MAX_DYNAMIC_ROLES_PER_SESSION`
+   * is reached.
+   */
+  define(cwd: string, raw: unknown): Promise<
+    | { ok: true; role: WrittenDynamicRole; task: string }
+    | { ok: false; error: string }
+  >;
+  /** Deletes one role's file (best-effort) and stops tracking it. */
+  cleanup(id: string): Promise<void>;
+  /** Deletes every tracked role's file. Bind to `session_shutdown`. */
+  cleanupAll(): Promise<void>;
+}
+
+export function createDynamicRoleRegistry(): DynamicRoleRegistry {
+  const written = new Map<string, WrittenDynamicRole>();
+
+  async function removeFile(filePath: string): Promise<void> {
+    try {
+      await rm(filePath, { force: true });
+    } catch {
+      // Best-effort: a session_shutdown cleanup racing a manual one, or a
+      // file already gone, is not an error worth surfacing.
+    }
+  }
+
+  return {
+    size: () => written.size,
+
+    async define(cwd, raw) {
+      if (written.size >= MAX_DYNAMIC_ROLES_PER_SESSION) {
+        return {
+          ok: false,
+          error: `Limit erreicht: maximal ${MAX_DYNAMIC_ROLES_PER_SESSION} dynamische Rollen pro Session.`,
+        };
+      }
+      const validation = validateDynamicRoleRequest(raw);
+      if (!validation.ok) return validation;
+      const { request } = validation;
+
+      if (written.has(request.id)) {
+        return { ok: false, error: `Rolle "${request.id}" existiert in dieser Session bereits.` };
+      }
+
+      const dir = path.join(cwd, ".pi", "agents", "rabbit-dynamic");
+      const filePath = path.join(dir, `${request.id}.md`);
+      await mkdir(dir, { recursive: true });
+      await writeFile(filePath, buildRoleFileContent(request), "utf8");
+
+      const role: WrittenDynamicRole = {
+        id: request.id,
+        runtimeName: dynamicRoleRuntimeName(request.id),
+        filePath,
+      };
+      written.set(request.id, role);
+      return { ok: true, role, task: request.task };
+    },
+
+    async cleanup(id) {
+      const role = written.get(id);
+      if (!role) return;
+      written.delete(id);
+      await removeFile(role.filePath);
+    },
+
+    async cleanupAll() {
+      const roles = Array.from(written.values());
+      written.clear();
+      await Promise.all(roles.map((role) => removeFile(role.filePath)));
+    },
+  };
+}

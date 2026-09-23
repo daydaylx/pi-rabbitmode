@@ -5,6 +5,7 @@ import { registerRabbitCommand } from "../src/rabbit/commands.ts";
 import { createRabbitState } from "../src/rabbit/state.ts";
 import {
   createFakeCommandContext,
+  createFakeDynamicRoleRegistry,
   createFakeExtensionApi,
   createFakeSubagentRpcClient,
   fakeModelSupportingMax,
@@ -14,11 +15,12 @@ function setup() {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
   const rpc = createFakeSubagentRpcClient();
-  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never);
+  const dynamicRoles = createFakeDynamicRoleRegistry();
+  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never, dynamicRoles as never);
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, ctx, notifications, rpc };
+  return { api, state, ctx, notifications, rpc, dynamicRoles };
 }
 
 async function run(
@@ -78,7 +80,12 @@ test("/rabbit status reports pi-subagents availability via ping", async () => {
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
   const rpc = createFakeSubagentRpcClient({ pingBehavior: "success", pingVersion: 1 });
-  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never);
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    rpc as never,
+    createFakeDynamicRoleRegistry() as never,
+  );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
@@ -93,7 +100,12 @@ test("/rabbit status reports pi-subagents as unreachable on ping timeout", async
   const api = createFakeExtensionApi();
   const state = createRabbitState(api as unknown as ExtensionAPI);
   const rpc = createFakeSubagentRpcClient({ pingBehavior: "timeout" });
-  registerRabbitCommand(api as unknown as ExtensionAPI, state, rpc as never);
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    rpc as never,
+    createFakeDynamicRoleRegistry() as never,
+  );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
@@ -109,6 +121,91 @@ test("/rabbit stop reports no active run in Phase 1-2", async () => {
 
   assert.equal(notifications.length, 1);
   assert.match(notifications[0]?.message ?? "", /[Kk]ein aktiver Rabbit-Run/);
+});
+
+test("/rabbit spawn requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "spawn investigator find the bug");
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+});
+
+test("/rabbit spawn with a baseline role and task spawns via the RPC client", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "spawn investigator find the login bug");
+
+  assert.equal(notifications.length, 2);
+  assert.equal(notifications[1]?.type, "info");
+});
+
+test("/rabbit spawn rejects a role outside the baseline set", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "spawn architect find the bug");
+
+  assert.match(notifications[1]?.message ?? "", /Nutzung/);
+});
+
+test("/rabbit spawn without a task shows usage", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "spawn investigator");
+
+  assert.match(notifications[1]?.message ?? "", /Nutzung/);
+});
+
+test("/rabbit define requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, 'define {"id":"x","purpose":"p","instructions":"i","tools":["read"],"task":"t"}');
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+});
+
+test("/rabbit define with no argument shows its usage", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "define");
+
+  assert.match(notifications[1]?.message ?? "", /rabbit define/);
+});
+
+test("/rabbit define with invalid JSON reports a JSON error, not a crash", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "define {not json");
+
+  assert.match(notifications[1]?.message ?? "", /Ungültiges JSON/);
+});
+
+test("/rabbit define with valid JSON calls the dynamic role registry and reports success", async () => {
+  const { api, ctx, notifications, dynamicRoles } = setup();
+  await run(api, ctx, "on");
+  await run(
+    api,
+    ctx,
+    'define {"id":"api-checker","purpose":"p","instructions":"i","tools":["read"],"task":"check it"}',
+  );
+
+  assert.equal(dynamicRoles.defineCalls.length, 1);
+  assert.equal(notifications[1]?.type, "info");
+});
+
+test("spawn/define never emit on an aurora-ui/* channel", async () => {
+  const { api, ctx } = setup();
+  await run(api, ctx, "on");
+  await run(
+    api,
+    ctx,
+    'define {"id":"api-checker","purpose":"p","instructions":"i","tools":["read"],"task":"t"}',
+  );
+  await run(api, ctx, "spawn investigator find the bug");
+  await run(api, ctx, "off");
+
+  const auroraEmits = api.events.emitted.filter((entry) =>
+    entry.channel.startsWith("aurora-ui/"),
+  );
+  assert.equal(auroraEmits.length, 0);
 });
 
 test("unknown subcommand shows usage", async () => {

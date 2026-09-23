@@ -2,14 +2,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerRabbitCommand } from "../rabbit/commands.ts";
 import { registerRabbitShortcut } from "../rabbit/shortcut.ts";
 import { createRabbitState } from "../rabbit/state.ts";
+import { createDynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
 import { createSubagentRpcClient } from "../runtime/subagents-rpc.ts";
 
 /**
- * RabbitMode extension entrypoint — Phase 1-6 (session state, /rabbit
+ * RabbitMode extension entrypoint — Phase 1-7 (session state, /rabbit
  * command, Super+Alt+R shortcut, forced MAX thinking, Blue Shift theme +
- * status widget, pi-subagents v1 RPC client for capability/liveness
- * checking). See README.md and docs/spec/05_IMPLEMENTATION_PHASES.md for
- * the full roadmap. No orchestration/spawning yet — that starts Phase 7.
+ * status widget, pi-subagents v1 RPC client, baseline-role and dynamic-role
+ * spawning). See README.md and docs/spec/05_IMPLEMENTATION_PHASES.md for
+ * the full roadmap.
  *
  * The extension factory runs once per Pi process (state below is a module
  * closure, not global module state), but a single process can host several
@@ -19,7 +20,8 @@ import { createSubagentRpcClient } from "../runtime/subagents-rpc.ts";
 export default function rabbitModeExtension(pi: ExtensionAPI): void {
   const state = createRabbitState(pi);
   const rpc = createSubagentRpcClient(pi);
-  registerRabbitCommand(pi, state, rpc);
+  const dynamicRoles = createDynamicRoleRegistry();
+  registerRabbitCommand(pi, state, rpc, dynamicRoles);
   registerRabbitShortcut(pi, state);
 
   pi.on("session_start", () => {
@@ -28,5 +30,9 @@ export default function rabbitModeExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", (_event, ctx) => {
     state.dispose(ctx);
+    // Fallback net: anything not already cleaned up by a successful or
+    // failed /rabbit define never survives into the next session/process
+    // lifetime (reload/resume/new/fork keep this extension instance alive).
+    void dynamicRoles.cleanupAll();
   });
 }

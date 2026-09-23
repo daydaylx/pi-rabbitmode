@@ -139,6 +139,48 @@ export function fakeModelWithoutReasoning(id = "test/no-reasoning") {
 }
 
 /**
+ * A fast, no-filesystem stand-in for `DynamicRoleRegistry`
+ * (`src/orchestration/dynamic-role.ts`) so `commands.ts` unit tests don't
+ * touch disk. `test/dynamic-role.test.ts` exercises the real
+ * validation/file-write/cleanup implementation separately.
+ */
+export function createFakeDynamicRoleRegistry(options?: {
+  defineBehavior?: "success" | "error";
+  defineError?: string;
+}) {
+  const behavior = options?.defineBehavior ?? "success";
+  const defineCalls: { cwd: string; raw: unknown }[] = [];
+  const cleanupCalls: string[] = [];
+  let cleanupAllCalls = 0;
+
+  return {
+    size: () => 0,
+    defineCalls,
+    cleanupCalls,
+    cleanupAllCallCount: () => cleanupAllCalls,
+    define: async (cwd: string, raw: unknown) => {
+      defineCalls.push({ cwd, raw });
+      if (behavior === "error") {
+        return { ok: false as const, error: options?.defineError ?? "fake define error" };
+      }
+      const id = typeof raw === "object" && raw !== null && "id" in raw ? String((raw as { id: unknown }).id) : "fake-id";
+      const task = typeof raw === "object" && raw !== null && "task" in raw ? String((raw as { task: unknown }).task) : "";
+      return {
+        ok: true as const,
+        role: { id, runtimeName: `rabbit-dynamic.${id}`, filePath: `/fake/.pi/agents/rabbit-dynamic/${id}.md` },
+        task,
+      };
+    },
+    cleanup: async (id: string) => {
+      cleanupCalls.push(id);
+    },
+    cleanupAll: async () => {
+      cleanupAllCalls += 1;
+    },
+  };
+}
+
+/**
  * A fast, deterministic stand-in for `SubagentRpcClient`
  * (`src/runtime/subagents-rpc.ts`) so `commands.ts` unit tests don't pay
  * the real client's timeout delay. `test/subagents-rpc.test.ts` exercises
@@ -147,10 +189,14 @@ export function fakeModelWithoutReasoning(id = "test/no-reasoning") {
 export function createFakeSubagentRpcClient(options?: {
   pingBehavior?: "success" | "error" | "timeout";
   pingVersion?: number;
+  spawnBehavior?: "success" | "error" | "timeout";
+  spawnText?: string;
 }) {
   const behavior = options?.pingBehavior ?? "success";
   const version = options?.pingVersion ?? 1;
+  const spawnBehavior = options?.spawnBehavior ?? "success";
   let pingCalls = 0;
+  const spawnCalls: unknown[] = [];
 
   async function ping() {
     pingCalls += 1;
@@ -181,13 +227,38 @@ export function createFakeSubagentRpcClient(options?: {
     };
   }
 
+  async function spawn(params?: unknown) {
+    spawnCalls.push(params);
+    if (spawnBehavior === "timeout") {
+      throw new Error('RabbitMode: subagents RPC "spawn" timed out (fake)');
+    }
+    if (spawnBehavior === "error") {
+      return {
+        version: 1,
+        requestId: "fake",
+        method: "spawn",
+        success: false,
+        error: { code: "not_found", message: "fake spawn error" },
+      };
+    }
+    return {
+      version: 1,
+      requestId: "fake",
+      method: "spawn",
+      success: true,
+      data: { text: options?.spawnText ?? "fake spawn started." },
+    };
+  }
+
   return {
-    call: async (method: string) => {
+    call: async (method: string, params?: unknown) => {
       if (method === "ping") return ping();
+      if (method === "spawn") return spawn(params);
       throw new Error(`fake subagents RPC client: unsupported method "${method}" in test`);
     },
     ping,
     pingCallCount: () => pingCalls,
+    spawnCalls,
   };
 }
 

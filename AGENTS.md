@@ -2,13 +2,17 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–6** (Grundgerüst,
+Dieses Repository befindet sich in **Phase 1–7** (Grundgerüst,
 session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
 erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
 `aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
-Animation —, v1-RPC-Client zu `pi-subagents` für Erreichbarkeits-Diagnose
-in `/rabbit status`, siehe README.md). Es gibt noch keine Orchestrierung,
-kein Spawn und kein `subagents:rpc:v2`. Die vollständige Original-Spezifikation liegt unter
+Animation —, v1-RPC-Client zu `pi-subagents`, `/rabbit spawn` für
+Basisrollen und drei mitgelieferte Audit-Rollen, `/rabbit define` für
+echte session-lokale Ephemeral-Agent-Erzeugung mit hart read-only
+begrenztem Tool-Zugriff — siehe README.md für die Sicherheitsgrenzen).
+Es gibt noch keinen Workflow-Graph, keine Parallelität, kein Replanning
+und kein `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
+Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
 Testmatrix und Acceptance Criteria. Diese Datei fasst nur die Regeln
@@ -29,9 +33,15 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Keine versteckten Plan->Work-Wechsel.
 - Keine automatischen YOLO-/Permission-Erhöhungen.
 - Rabbit läuft mit `max`; kein stiller Downgrade.
-- Dynamische Agenten bleiben standardmäßig ephemeral. (ab Phase 7)
+- Dynamische Agenten bleiben standardmäßig ephemeral: Rollendateien aus
+  `/rabbit define` werden nach Gebrauch wieder gelöscht (Cleanup bei
+  Erfolg, Fehlschlag und als Fallback bei `session_shutdown`).
+- Tools dynamisch erzeugter Rollen sind hart auf `read, grep, find, ls`
+  begrenzt — kein `bash`/`write`/`edit`, keine Ausnahme.
 - Nested Depth maximal 2. (ab Phase 10)
-- Root-only dynamic agent creation. (ab Phase 7)
+- Root-only dynamic agent creation: nur `/rabbit define` (vom Hauptagenten
+  ausgelöst) erzeugt Rollen; es gibt keinen Pfad, über den ein gespawnter
+  Child selbst neue Rollen anlegt.
 - Writer concurrency initial 1. (ab Phase 11)
 - Bestehende Pi-Shortcuts nicht verändern; einzige neue Bindung ist
   `Super+Alt+R`.

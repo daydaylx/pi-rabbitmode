@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–6 Grundgerüst
+## Status: Phase 1–7 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
@@ -29,15 +29,31 @@ Diese Version implementiert ausschließlich:
   sichtbar solange RabbitMode aktiv ist
 - einen Client für `pi-subagents`' bestehendes v1 EventBus-RPC
   (`subagents:rpc:v1:*`, `src/runtime/subagents-rpc.ts`): `/rabbit status`
-  pingt die Runtime (kurzer Timeout) und zeigt an, ob sie erreichbar ist —
-  reine Diagnose, noch kein Spawn/Orchestrierung
+  pingt die Runtime (kurzer Timeout) und zeigt an, ob sie erreichbar ist
+- `/rabbit spawn <rolle> <Aufgabe>` startet eine bereits installierte Rolle
+  über das v1-`spawn`-RPC — die drei projekteigenen Basisrollen
+  (`investigator`, `debugger`, `verifier`) sowie drei von `pi-rabbitmode`
+  selbst mitgelieferte, read-only Audit-Rollen
+  (`permission-auditor`, `recovery-auditor`, `architecture-auditor`,
+  unter `agents/`, automatisch von `pi-subagents` entdeckt über den
+  `pi.subagents.agents`-Manifest-Schlüssel)
+- `/rabbit define <json>` — echte Ephemeral-Agent-Erzeugung: der
+  Hauptagent kann zur Laufzeit eine **neue** Rolle definieren
+  (`id`/`purpose`/`instructions`/`tools`/`task`), RabbitMode schreibt sie
+  als `.pi/agents/rabbit-dynamic/<id>.md`, spawnt sie sofort und löscht
+  die Datei danach wieder (`src/orchestration/dynamic-role.ts`).
+  **Tools sind hart auf read-only beschränkt** (`read`, `grep`, `find`,
+  `ls` — nie `bash`/`write`/`edit`), maximal 8 dynamische Rollen pro
+  Session, Frontmatter-Injection-Schutz für nutzergenerierten Text. Siehe
+  „Bewusste Ausnahme" unten.
 
-**Es gibt noch keine Orchestrierung, keine Subagenten-Ansteuerung.**
-`/rabbit on` schaltet einen internen Zustand um, erzwingt `max`-Thinking und
-wechselt Theme/Widget — es verändert nie Permission-Level oder
-Workflow-Mode, auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab`
-(Workflow-Menü) bleiben unverändert; RabbitMode registriert ausschließlich
-die neue, bisher unbelegte Bindung `Super+Alt+R`.
+**Es gibt noch keinen Workflow-Graph, keine Parallelität, kein
+Replanning.** `/rabbit on` schaltet einen internen Zustand um, erzwingt
+`max`-Thinking und wechselt Theme/Widget — es verändert nie
+Permission-Level oder Workflow-Mode, auch nicht indirekt. `Super+R`
+(Resume) und `Shift+Tab` (Workflow-Menü) bleiben unverändert; RabbitMode
+registriert ausschließlich die neue, bisher unbelegte Bindung
+`Super+Alt+R`.
 
 ### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
 
@@ -78,9 +94,40 @@ bewusst nur das bereits vorhandene, stabile v1-Protokoll an
 (`ping`/`status`/`spawn`/`interrupt`/`stop`, Event-Namen `subagents:rpc:v1:*`
 — exakt aus `~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/extension/
 rpc.ts` übernommen, nicht importiert, da `pi-subagents` selbst kein
-`exports`-Feld hat). Das v2-Protokolldesign — Voraussetzung für Phase 7
-(Ephemeral Agent Factory) und Phase 8 (Workflow-Graph) — bleibt eine
-offene, bewusst nicht in dieser Runde getroffene Entscheidung.
+`exports`-Feld hat). `daydaylx/pi-subagents` selbst bleibt in dieser Runde
+unverändert.
+
+### Phase 7: echte Ephemeral-Agent-Erzeugung ohne v2 — bewusste Ausnahme vom V1-Nicht-Ziel
+
+`docs/spec/08_RISKS_AND_NON_GOALS.md` nennt für V1 explizit als
+Nicht-Ziel: „keine automatische persistente Agent-Dateien". `/rabbit
+define` ist eine bewusste, vom Nutzer angeforderte Ausnahme davon: statt
+auf das fehlende v2-Protokoll zu warten, nutzt es einen bereits
+vorhandenen, öffentlichen Mechanismus — `pi-subagents` durchsucht beim
+Rollen-Discovery auch projektlokale `.pi/agents/`-Verzeichnisse
+(`~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/agents/
+agent-discovery.ts`). RabbitMode schreibt dorthin, spawnt, und löscht die
+Datei wieder — der *Zweck* bleibt ephemeral/session-lokal, auch wenn die
+Rolle technisch kurz auf der Platte liegt (pi-subagents kann eine Rolle
+nur aus einer Datei entdecken, es gibt keinen In-Memory-Weg).
+
+Weil das eine Rolle mit echtem Tool-Zugriff automatisch erzeugt, ist die
+Sicherheitsgrenze im Code erzwungen, nicht nur empfohlen:
+
+- Tools nur aus `["read", "grep", "find", "ls"]` — kein `bash`/`write`/`edit`
+  kann je über `/rabbit define` vergeben werden.
+- jedes Freitext-Feld, das ins Frontmatter wandert (`purpose`), wird gegen
+  Frontmatter-Injection geprüft (keine Newlines, kein `---`) — ein
+  bösartiger `purpose`-Text kann keine zusätzlichen Frontmatter-Felder wie
+  `tools: bash` einschmuggeln.
+- maximal 8 dynamische Rollen pro Session
+  (`docs/spec/01_ARCHITECTURE.md` §7).
+- Cleanup bei Erfolg, Fehlschlag und als Fallback bei `session_shutdown` —
+  keine verwaiste Rollendatei überlebt die Session.
+
+Verzichtet wird hier bewusst weiterhin auf: Schreib-/Ausführungs-Tools für
+dynamische Rollen, Nested-Delegation dynamischer Rollen und ein
+`v2`-Protokoll in `pi-subagents` selbst.
 
 ## Architektur (Zielbild, nicht vollständig umgesetzt)
 
@@ -108,8 +155,10 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit` / `/rabbit toggle` | schaltet zwischen `off` und `active` |
 | `/rabbit on` | aktiviert RabbitMode (No-Op, falls bereits aktiv) |
 | `/rabbit off` | deaktiviert RabbitMode (No-Op, falls bereits aus) |
-| `/rabbit status` | zeigt aktuellen Mode; zusätzlich, rein informativ, den zuletzt auf dem Aurora-Bus beobachteten Permission-Level/Workflow-Mode |
-| `/rabbit stop` | Phase 1-2: meldet immer "kein aktiver Rabbit-Run" (kein echter Run existiert noch) |
+| `/rabbit status` | zeigt Mode, `pi-subagents`-Erreichbarkeit und, rein informativ, den zuletzt auf dem Aurora-Bus beobachteten Permission-Level/Workflow-Mode |
+| `/rabbit spawn <rolle> <Aufgabe>` | startet `investigator`\|`debugger`\|`verifier`\|`permission-auditor`\|`recovery-auditor`\|`architecture-auditor` (nur bei aktivem RabbitMode) |
+| `/rabbit define <json>` | definiert und startet eine neue, session-lokale Rolle (read-only, siehe oben; nur bei aktivem RabbitMode) |
+| `/rabbit stop` | meldet noch immer "kein aktiver Rabbit-Run" — es gibt noch keinen Workflow-Graph, der einen Run zu stoppen hätte |
 
 Der State ist rein session-lokal (In-Memory), wird nirgends persistiert und
 ist nach einem Neustart immer `off`.
@@ -135,8 +184,8 @@ Arbeitsbaum selbst).
 
 Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
 öffentlicher Aurora-Motion-Hook existiert) · Phase 6b `subagents:rpc:v2`
-(eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 7
-Ephemeral Agent Factory · Phase 8 Workflow-Graph ·
+(eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8
+Workflow-Graph (Fan-out/Fan-in, Abhängigkeiten, mehrstufige Phasen) ·
 Phase 9 Replanning · Phase 10 Nested Delegation · Phase 11 Writer ·
 Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·
 Phase 14 Benchmark.
