@@ -7,6 +7,7 @@ import {
   DYNAMIC_ROLE_PACKAGE,
   DYNAMIC_ROLE_TOOL_ALLOWLIST,
   MAX_DYNAMIC_ROLES_PER_SESSION,
+  RABBIT_MAX_SUBAGENT_DEPTH,
   createDynamicRoleRegistry,
   dynamicRoleRuntimeName,
   parseDynamicRoleRequest,
@@ -143,6 +144,7 @@ test("define() writes a discoverable .md file under .pi/agents/rabbit-dynamic/",
   assert.match(content, /\ndescription: "Checks whether an API change stays backward compatible\."\n/);
   assert.match(content, /\ntools: read, grep\n/);
   assert.match(content, /\npackage: rabbit-dynamic\n/);
+  assert.match(content, new RegExp(`\\nmaxSubagentDepth: ${RABBIT_MAX_SUBAGENT_DEPTH}\\n`));
   assert.match(content, /\n---\n\nCompare the old and new API surface\./);
 });
 

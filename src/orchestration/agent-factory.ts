@@ -1,5 +1,5 @@
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
-import type { DynamicRoleRegistry } from "./dynamic-role.ts";
+import { RABBIT_MAX_SUBAGENT_DEPTH, type DynamicRoleRegistry } from "./dynamic-role.ts";
 
 /**
  * Two ways to get a running agent under RabbitMode:
@@ -54,6 +54,8 @@ export function isRabbitBundledRole(value: string): value is RabbitBundledRole {
 export function rabbitBundledRoleRuntimeName(role: RabbitBundledRole): string {
   return `rabbitmode.${role}`;
 }
+
+export { RABBIT_MAX_SUBAGENT_DEPTH };
 
 export interface SpawnRoleResult {
   ok: boolean;

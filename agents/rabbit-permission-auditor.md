@@ -7,6 +7,7 @@ defaultContext: fresh
 inheritProjectContext: true
 inheritSkills: false
 timeoutMs: 600000
+maxSubagentDepth: 2
 ---
 
 Du bist der read-only Permission-Auditor für einen RabbitMode-Workflow-Zweig.

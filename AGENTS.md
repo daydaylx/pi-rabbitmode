@@ -2,7 +2,7 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–9** (Grundgerüst,
+Dieses Repository befindet sich in **Phase 1–10** (Grundgerüst,
 session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
 erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
 `aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
@@ -11,11 +11,13 @@ Basisrollen und drei mitgelieferte Audit-Rollen, `/rabbit define` für
 echte session-lokale Ephemeral-Agent-Erzeugung mit hart read-only
 begrenztem Tool-Zugriff, `/rabbit workflow` für einen deklarativen DAG mit
 Abhängigkeiten und begrenzter Parallelität, `/rabbit replan` für
-begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen) — siehe
-README.md für Sicherheitsgrenzen und die noch unverifizierte
-Status-Polling-Annahme). Es gibt noch keine Nested Delegation, keinen
-Writer und kein `subagents:rpc:v2` in `pi-subagents` selbst. Die
-vollständige Original-Spezifikation liegt unter
+begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen),
+`maxSubagentDepth: 2` auf jeder von `pi-rabbitmode` geschriebenen Rolle
+(reutilisiert `pi-subagents`' eigenen Tiefen-Mechanismus statt einer
+zweiten Engine) — siehe README.md für Sicherheitsgrenzen und die noch
+unverifizierte Status-Polling-Annahme). Es gibt noch keinen Writer und
+kein `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
+Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
 Testmatrix und Acceptance Criteria. Diese Datei fasst nur die Regeln
@@ -41,7 +43,9 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
   Erfolg, Fehlschlag und als Fallback bei `session_shutdown`).
 - Tools dynamisch erzeugter Rollen sind hart auf `read, grep, find, ls`
   begrenzt — kein `bash`/`write`/`edit`, keine Ausnahme.
-- Nested Depth maximal 2. (ab Phase 10)
+- Nested Depth maximal 2: jede von `pi-rabbitmode` geschriebene Rolle
+  setzt `maxSubagentDepth: 2` in ihrer Frontmatter (`pi-subagents`' eigener
+  Mechanismus, siehe `src/orchestration/dynamic-role.ts`).
 - Root-only dynamic agent creation: nur `/rabbit define` (vom Hauptagenten
   ausgelöst) erzeugt Rollen; es gibt keinen Pfad, über den ein gespawnter
   Child selbst neue Rollen anlegt.

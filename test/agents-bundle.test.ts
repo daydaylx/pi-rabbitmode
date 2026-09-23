@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { DYNAMIC_ROLE_TOOL_ALLOWLIST } from "../src/orchestration/dynamic-role.ts";
+import { DYNAMIC_ROLE_TOOL_ALLOWLIST, RABBIT_MAX_SUBAGENT_DEPTH } from "../src/orchestration/dynamic-role.ts";
 import { RABBIT_BUNDLED_ROLES } from "../src/orchestration/agent-factory.ts";
 
 /**
@@ -44,6 +44,10 @@ for (const role of RABBIT_BUNDLED_ROLES) {
     assert.equal(frontmatter.name, role);
     assert.ok(frontmatter.description && frontmatter.description.length > 0);
     assert.equal(frontmatter.package, "rabbitmode");
+    // Nested Delegation (Phase 10): reuses pi-subagents' own depth cap
+    // (PI_SUBAGENT_MAX_DEPTH) instead of a second engine — see
+    // docs/spec/02_CONTRACTS.md §6 and src/orchestration/dynamic-role.ts.
+    assert.equal(frontmatter.maxSubagentDepth, String(RABBIT_MAX_SUBAGENT_DEPTH));
 
     const tools = (frontmatter.tools ?? "").split(",").map((t) => t.trim()).filter(Boolean);
     assert.ok(tools.length > 0, "must declare at least one tool");

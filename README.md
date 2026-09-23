@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–9 Grundgerüst
+## Status: Phase 1–10 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
@@ -64,8 +64,17 @@ Diese Version implementiert ausschließlich:
   Issue #1 ist bewusst Post-MVP), überschreibt keine ältere Revision und
   kann Limits (Parallelität) nicht ausweiten. Bereits abgeschlossene
   Steps werden nie erneut gespawnt.
+- Nested Delegation (`docs/spec/02_CONTRACTS.md` §6: „Nested Depth
+  maximal 2"): keine eigene Tiefenzählung — `pi-subagents` hat dafür
+  bereits einen Mechanismus (`PI_SUBAGENT_DEPTH`/`PI_SUBAGENT_MAX_DEPTH`,
+  pro Rolle per `maxSubagentDepth`-Frontmatter). Jede von `pi-rabbitmode`
+  geschriebene Rolle (die drei mitgelieferten Audit-Rollen und jede
+  `/rabbit define`-Rolle) setzt `maxSubagentDepth: 2` explizit. In der
+  Praxis rein vorsorglich: keine dieser Rollen bekommt ein
+  delegationsfähiges Tool (`bash`/`subagent`), kann also aktuell ohnehin
+  nicht weiter verschachteln.
 
-**Es gibt noch keine Nested Delegation und keinen Writer.** `/rabbit on` schaltet
+**Es gibt noch keinen Writer.** `/rabbit on` schaltet
 einen internen Zustand um, erzwingt `max`-Thinking und wechselt
 Theme/Widget — es verändert nie Permission-Level oder Workflow-Mode, auch
 nicht indirekt. `Super+R` (Resume) und `Shift+Tab` (Workflow-Menü) bleiben
@@ -222,9 +231,9 @@ Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
 öffentlicher Aurora-Motion-Hook existiert) · Phase 6b `subagents:rpc:v2`
 (eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8b
 Status-Polling live verifizieren · inline `/rabbit define` innerhalb
-eines Workflow-Steps · Phase 10 Nested Delegation · Phase 11 Writer ·
-Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·
-Phase 14 Benchmark.
+eines Workflow-Steps · Phase 11 Writer · Phase 12
+Verification-Integration · Phase 13 Persistenz (explizit) · Phase 14
+Benchmark.
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 

@@ -41,6 +41,32 @@ export type DynamicRoleTool = (typeof DYNAMIC_ROLE_TOOL_ALLOWLIST)[number];
 export const DYNAMIC_ROLE_PACKAGE = "rabbit-dynamic";
 export const MAX_DYNAMIC_ROLES_PER_SESSION = 8;
 
+/**
+ * Nested Delegation (Phase 10, `docs/spec/02_CONTRACTS.md` §6: "Nested
+ * Depth maximal 2"). RabbitMode does not track delegation depth itself —
+ * that would be a second execution/tracking engine
+ * (`docs/spec/08_RISKS_AND_NON_GOALS.md` P1: "Keine eigene Spawn-/Chain-/
+ * Parallel-Engine bauen"). `pi-subagents` already has one, driven by
+ * `PI_SUBAGENT_DEPTH`/`PI_SUBAGENT_MAX_DEPTH` env vars it sets on each
+ * spawned child process and a per-role `maxSubagentDepth` frontmatter
+ * field it folds in via `resolveChildMaxSubagentDepth` (`min(parent,
+ * role's own cap)`) — see `~/.pi/agent/git/github.com/daydaylx/
+ * pi-subagents/src/shared/types/constants.ts`, where `2` is also that
+ * function's own `DEFAULT_SUBAGENT_MAX_DEPTH`. Every role `pi-rabbitmode`
+ * writes itself (bundled `agents/*.md` and this module's generated
+ * files) sets this explicitly rather than relying on an implicit default
+ * a project's own `extensions/subagent/config.json` could change.
+ *
+ * In practice this is defense-in-depth today: every such role's `tools`
+ * excludes anything that could delegate further (`DYNAMIC_ROLE_TOOL_
+ * ALLOWLIST` above — no `bash`/`subagent`), so none of them can nest at
+ * all yet. Baseline roles (`investigator`/`debugger`/`verifier`) live in
+ * `daydaylx/pi`'s own `agents/`, outside this repo's control — their
+ * depth behavior is whatever their own frontmatter (or the project
+ * default) already sets.
+ */
+export const RABBIT_MAX_SUBAGENT_DEPTH = 2;
+
 const ID_PATTERN = /^[a-z][a-z0-9-]{1,40}$/;
 const MAX_PURPOSE_LENGTH = 300;
 const MAX_INSTRUCTIONS_LENGTH = 4000;
@@ -164,6 +190,7 @@ function buildRoleFileContent(request: DynamicRoleRequest): string {
     `inheritProjectContext: true`,
     `inheritSkills: false`,
     `timeoutMs: 600000`,
+    `maxSubagentDepth: ${RABBIT_MAX_SUBAGENT_DEPTH}`,
   ].join("\n");
   return `---\n${frontmatter}\n---\n\n${request.instructions}\n`;
 }
