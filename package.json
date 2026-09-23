@@ -1,7 +1,7 @@
 {
   "name": "pi-rabbitmode",
   "version": "0.1.0",
-  "description": "Opt-in orchestration layer for Pi (Phase 1-2: session state + /rabbit command, no orchestration yet)",
+  "description": "Opt-in orchestration layer for Pi (Phase 1-5: session state, /rabbit command, shortcut, forced MAX thinking, Blue Shift theme; no orchestration yet)",
   "author": "daydaylx",
   "license": "MIT",
   "type": "module",
@@ -22,6 +22,7 @@
   ],
   "files": [
     "src/**/*.ts",
+    "themes/**/*.json",
     "docs/**/*",
     "README.md",
     "AGENTS.md"
@@ -36,7 +37,8 @@
     "verify": "npm run typecheck && npm run test"
   },
   "pi": {
-    "extensions": ["./src/extension/index.ts"]
+    "extensions": ["./src/extension/index.ts"],
+    "themes": ["./themes"]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

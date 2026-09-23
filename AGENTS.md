@@ -2,11 +2,12 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–4** (Grundgerüst,
+Dieses Repository befindet sich in **Phase 1–5** (Grundgerüst,
 session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
-erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check). Es
-gibt noch keine Orchestrierung, kein Theme und keine Ansteuerung von
-`pi-subagents`. Die vollständige Original-Spezifikation liegt unter
+erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
+`aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
+Animation, siehe README.md). Es gibt noch keine Orchestrierung und keine
+Ansteuerung von `pi-subagents`. Die vollständige Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
 Testmatrix und Acceptance Criteria. Diese Datei fasst nur die Regeln

@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–4 Grundgerüst
+## Status: Phase 1–5 Grundgerüst
 
 Diese Version implementiert ausschließlich:
 
@@ -21,13 +21,47 @@ Diese Version implementiert ausschließlich:
   ohne `max`-Unterstützung lässt `/rabbit on` fehlschlagen
   (`RABBIT_MODEL_INCOMPATIBLE`) statt still auf eine niedrigere Stufe zu
   fallen
+- ein eigenes `aurora-rabbit`-Theme (kalte Electric-Blue-Identität,
+  `themes/aurora-rabbit.json`), das beim Aktivieren übernommen und beim
+  Deaktivieren auf das vorherige Theme zurückgesetzt wird (nie dauerhaft
+  in `settings.json` geschrieben)
+- einen `◆ RABBIT · MAX`-Statuswidget (`ctx.ui.setWidget`, über dem Editor),
+  sichtbar solange RabbitMode aktiv ist
 
-**Es gibt noch keine Orchestrierung, kein eigenes Theme, keine
-Subagenten-Ansteuerung.** `/rabbit on` schaltet nur einen internen Zustand
-um und zeigt ihn an — es verändert nie Permission-Level oder Workflow-Mode,
-auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab` (Workflow-Menü)
-bleiben unverändert; RabbitMode registriert ausschließlich die neue,
-bisher unbelegte Bindung `Super+Alt+R`.
+**Es gibt noch keine Orchestrierung, keine Subagenten-Ansteuerung.**
+`/rabbit on` schaltet einen internen Zustand um, erzwingt `max`-Thinking und
+wechselt Theme/Widget — es verändert nie Permission-Level oder
+Workflow-Mode, auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab`
+(Workflow-Menü) bleiben unverändert; RabbitMode registriert ausschließlich
+die neue, bisher unbelegte Bindung `Super+Alt+R`.
+
+### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
+
+`docs/spec/04_RABBIT_TUI.md` beschreibt eine absichtlich übertriebene,
+durchgehend animierte Darstellung (Glow-/Pulse-/Sweep-Effekte, animierte
+Branch-Linien). Diese Runde liefert davon bewusst nur den **statischen,
+ereignisgetriebenen** Teil (Theme-Wechsel + einmaliges Setzen des
+Statuswidgets bei `/rabbit on`/`/rabbit off`), aus zwei Gründen:
+
+1. `daydaylx/pi`s geteilte Motion-/Ticker-Infrastruktur
+   (`AnimationTicker`/`STATE_VISUALS` in `extensions/aurora-ui/index.ts`)
+   hat aktuell keinen öffentlichen Hook, über den ein externes Package
+   Frames abonnieren oder eigene visuelle Zustände registrieren kann. Eine
+   eigene, unabhängige Zeitschleife zu bauen ist durch den Contract
+   ausdrücklich verboten ("Keine zweite Ticker-/Animation-Engine",
+   `docs/spec/02_CONTRACTS.md`).
+2. Ein solcher Hook wäre eine Änderung an Auroras geteiltem, von jeder
+   Session genutzten Rendering-Code in `daydaylx/pi` — dort kann diese
+   Umsetzung das Ergebnis nicht visuell verifizieren (kein Zugriff auf ein
+   echtes Terminal-Rendering). Eine ungeprüfte Änderung an diesem
+   gemeinsam genutzten Code wird hier bewusst vermieden.
+
+Damit sind Kriterien wie "Rabbit Status wird von Aurora dargestellt"
+(Aurora rendert das Widget selbst) und "Blue-Shift auch auf kleinen
+Terminals erkennbar" (Theme deckt das ab) bereits erfüllt; die volle
+"spektakuläre", durchgehend bewegte Inszenierung bleibt offen für eine
+spätere Runde, idealerweise zusammen mit einer bewussten Entscheidung, ob
+und wie ein solcher Hook in `daydaylx/pi` aussehen soll.
 
 ## Architektur (Zielbild, nicht vollständig umgesetzt)
 
@@ -80,7 +114,8 @@ Arbeitsbaum selbst).
 
 ## Roadmap (spätere Phasen, siehe `docs/spec/05_IMPLEMENTATION_PHASES.md`)
 
-Phase 5 Rabbit-TUI (`aurora-rabbit`, Blue Shift) · Phase 6 `pi-subagents`-
+Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
+öffentlicher Aurora-Motion-Hook existiert) · Phase 6 `pi-subagents`-
 RPC-Bridge · Phase 7 Ephemeral Agent Factory · Phase 8 Workflow-Graph ·
 Phase 9 Replanning · Phase 10 Nested Delegation · Phase 11 Writer ·
 Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·

@@ -4,9 +4,10 @@ import { registerRabbitShortcut } from "../rabbit/shortcut.ts";
 import { createRabbitState } from "../rabbit/state.ts";
 
 /**
- * RabbitMode extension entrypoint — Phase 1-3 (session state, /rabbit
- * command, Super+Alt+R shortcut). See README.md and
- * docs/spec/05_IMPLEMENTATION_PHASES.md for the full roadmap.
+ * RabbitMode extension entrypoint — Phase 1-5 (session state, /rabbit
+ * command, Super+Alt+R shortcut, forced MAX thinking, Blue Shift theme +
+ * status widget). See README.md and docs/spec/05_IMPLEMENTATION_PHASES.md
+ * for the full roadmap.
  *
  * The extension factory runs once per Pi process (state below is a module
  * closure, not global module state), but a single process can host several
@@ -22,7 +23,7 @@ export default function rabbitModeExtension(pi: ExtensionAPI): void {
     state.reset();
   });
 
-  pi.on("session_shutdown", () => {
-    state.dispose();
+  pi.on("session_shutdown", (_event, ctx) => {
+    state.dispose(ctx);
   });
 }

@@ -4,6 +4,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createEffortController } from "./effort.ts";
 import { emitRabbitModeChanged } from "./events.ts";
+import { RABBIT_THEME_NAME, createThemeController } from "./theme.ts";
+import { RABBIT_WIDGET_KEY, updateRabbitWidget } from "./widget.ts";
 
 export type RabbitMode = "off" | "active";
 
@@ -88,8 +90,14 @@ export interface RabbitStateApi {
   hasActiveRun(): boolean;
   /** Bind to `session_start`. */
   reset(): void;
-  /** Bind to `session_shutdown`. */
-  dispose(): void;
+  /**
+   * Bind to `session_shutdown`. `ctx` is available there too (unlike
+   * `session_start`, where nothing needs restoring yet) — passing it lets a
+   * still-active RabbitMode clean up its theme/widget instead of leaking
+   * them into whatever comes next (`reload`, `resume`, `new`, `fork` all
+   * keep the same process running).
+   */
+  dispose(ctx?: ExtensionContext): void;
 }
 
 export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
@@ -98,6 +106,7 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
   let observedWorkflowPhase: string | undefined;
   let unsubscribe: (() => void) | undefined;
   const effort = createEffortController(pi);
+  const theme = createThemeController();
 
   function subscribeAuroraPatches(): void {
     unsubscribe?.();
@@ -131,9 +140,13 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
         return { changed: false };
       }
       mode = "active";
+      const themeResult = theme.apply(ctx);
+      updateRabbitWidget(ctx, api);
       emitRabbitModeChanged(pi, mode);
       ctx.ui.notify(
-        "RabbitMode aktiviert (MAX Thinking erzwungen — Grundgerüst, noch keine Orchestrierung).",
+        themeResult.switched
+          ? "RabbitMode aktiviert (MAX Thinking erzwungen — Grundgerüst, noch keine Orchestrierung)."
+          : `RabbitMode aktiviert, aber Theme "${RABBIT_THEME_NAME}" konnte nicht geladen werden (${themeResult.error ?? "unbekannter Fehler"}).`,
         "info",
       );
       return { changed: true };
@@ -153,9 +166,11 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
       }
       mode = "off";
       effort.restore();
+      theme.restore(ctx);
+      ctx.ui.setWidget(RABBIT_WIDGET_KEY, undefined);
       emitRabbitModeChanged(pi, mode);
       ctx.ui.notify(
-        "RabbitMode deaktiviert (vorherige Thinking-Stufe wiederhergestellt).",
+        "RabbitMode deaktiviert (vorherige Thinking-Stufe und Theme wiederhergestellt).",
         "info",
       );
       return { changed: true, blocked: false };
@@ -172,13 +187,24 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
       observedPermissionLevel = undefined;
       observedWorkflowPhase = undefined;
       effort.reset();
+      theme.reset();
       subscribeAuroraPatches();
     },
 
-    dispose() {
+    dispose(ctx) {
       unsubscribe?.();
       unsubscribe = undefined;
+      // `session_shutdown` fires for `reload`/`resume`/`new`/`fork` too, not
+      // just `quit` — the process (and this extension instance) keeps
+      // running, so a still-forced max level or swapped theme would
+      // otherwise leak into whatever session comes next.
+      effort.restore();
+      if (ctx) {
+        theme.restore(ctx);
+        ctx.ui.setWidget(RABBIT_WIDGET_KEY, undefined);
+      }
       effort.reset();
+      theme.reset();
     },
   };
 

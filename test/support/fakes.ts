@@ -143,8 +143,16 @@ export interface RecordedNotify {
   type?: "info" | "warning" | "error";
 }
 
+export interface RecordedSetWidget {
+  key: string;
+  content: string[] | undefined;
+}
+
 export interface FakeCommandContextUi {
   notify(message: string, type?: "info" | "warning" | "error"): void;
+  readonly theme: { name: string };
+  setTheme(theme: string): { success: boolean; error?: string };
+  setWidget(key: string, content: string[] | undefined): void;
 }
 
 export interface FakeCommandContext {
@@ -152,18 +160,52 @@ export interface FakeCommandContext {
   model?: unknown;
 }
 
-export function createFakeCommandContext(options?: { model?: unknown }): {
+export function createFakeCommandContext(options?: {
+  model?: unknown;
+  /** Theme name `ctx.ui.theme.name` starts as. Default: "aurora-forge". */
+  initialThemeName?: string;
+  /** `ctx.ui.setTheme(name)` fails (success: false) for names in this list. */
+  failThemeNames?: string[];
+}): {
   ctx: FakeCommandContext;
   notifications: RecordedNotify[];
+  setThemeCalls: string[];
+  setWidgetCalls: RecordedSetWidget[];
+  currentThemeName(): string;
 } {
   const notifications: RecordedNotify[] = [];
+  const setThemeCalls: string[] = [];
+  const setWidgetCalls: RecordedSetWidget[] = [];
+  const failThemeNames = new Set(options?.failThemeNames ?? []);
+  let themeName = options?.initialThemeName ?? "aurora-forge";
+
   const ctx: FakeCommandContext = {
     model: options?.model,
     ui: {
       notify(message, type) {
         notifications.push({ message, type });
       },
+      get theme() {
+        return { name: themeName };
+      },
+      setTheme(name) {
+        setThemeCalls.push(name);
+        if (failThemeNames.has(name)) {
+          return { success: false, error: `theme "${name}" not found` };
+        }
+        themeName = name;
+        return { success: true };
+      },
+      setWidget(key, content) {
+        setWidgetCalls.push({ key, content });
+      },
     },
   };
-  return { ctx, notifications };
+  return {
+    ctx,
+    notifications,
+    setThemeCalls,
+    setWidgetCalls,
+    currentThemeName: () => themeName,
+  };
 }
