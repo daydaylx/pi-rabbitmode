@@ -1,4 +1,5 @@
 import type { DynamicRoleRegistry } from "./dynamic-role.ts";
+import { spawnTemporaryAgent, TEMPORARY_ROLE } from "./temporary-agent.ts";
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
 import {
   isBaselineRole,
@@ -61,6 +62,8 @@ async function spawnStep(
   const spawnOptions = options?.childModel
     ? { model: options.childModel }
     : undefined;
+  if (step.role === TEMPORARY_ROLE)
+    return spawnTemporaryAgent(rpc, step.spec, spawnOptions);
   if (isBaselineRole(step.role))
     return spawnBaselineRole(rpc, step.role, task, spawnOptions);
   if (isRabbitBundledRole(step.role))

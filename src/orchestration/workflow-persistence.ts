@@ -54,6 +54,7 @@ function toSnapshot(name: string, session: WorkflowSession, now: () => string): 
         id: step.id,
         role: step.role,
         task: step.task,
+        ...(step.spec !== undefined ? { spec: step.spec } : {}),
         ...(step.dependsOn !== undefined ? { dependsOn: step.dependsOn } : {}),
       })),
       outcomes: revision.result.steps.map((result) => ({

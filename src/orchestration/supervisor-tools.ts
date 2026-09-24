@@ -15,7 +15,8 @@ const SUPERVISOR_GUIDANCE = `
 RabbitMode supervisor contract (active only while RabbitMode is on):
 - You are the Root Supervisor; RabbitMode's tools execute only the DAG you submit and enforce role, size, dependency, concurrency, MAX-thinking, and lifecycle rules.
 - First classify the task. Solve small/simple tasks yourself; do not delegate without a meaningful independent branch.
-- For substantial multi-part analysis, prefer installed roles: investigator, debugger, verifier, rabbitmode.permission-auditor, rabbitmode.recovery-auditor, rabbitmode.architecture-auditor. Use rabbit_define_role only for a genuine missing specialty; generated roles are read-only.
+- For independent analysis branches prefer temporary agents: a step with role="temporary" and a spec (objective, profile analyse|research, delegationReason, optional context/scope/expectedOutput). They are stateless, read-only and get only the context you put in the spec; they cannot depend on other steps, but other steps may depend on them. Installed roles remain available for the rest: investigator, debugger, verifier, rabbitmode.permission-auditor, rabbitmode.recovery-auditor, rabbitmode.architecture-auditor. Use rabbit_define_role only for a genuine missing specialty; generated roles are read-only.
+- Subagents deliver bounded work results; you decide. If results contradict, compare their evidence, re-check yourself or run a targeted verification — never decide by majority, completion order or model strength.
 - Build a bounded DAG with explicit dependsOn. Mark the final child synthesis step with kind="synthesis" and make it a terminal sink that consumes the relevant branch outputs.
 - After rabbit_workflow returns, inspect actual child outputs, distinguish complete/incomplete/failed/cancelled, and synthesize only from those outputs. If there is a concrete new finding that needs more work, call rabbit_replan with a reason and a new synthesis step; at most three revisions are allowed.
 - Never claim verification ran unless the real project_check was invoked. FAIL remains FAIL; INCOMPLETE is not PASS. RabbitMode does not write files or change permissions.
@@ -146,6 +147,11 @@ export function registerRabbitSupervisorTools(
     id: Type.String({ minLength: 1, maxLength: 80 }),
     role: Type.String({ minLength: 1, maxLength: 100 }),
     task: Type.String({ minLength: 1, maxLength: 4000 }),
+    spec: Type.Optional(Type.Unsafe<Record<string, unknown>>({
+      type: "object",
+      additionalProperties: true,
+      description: "Temporary agent contract for role=\"temporary\": {objective, profile: analyse|research, delegationReason, context?, scope?, expectedOutput?, requestedCapabilities?: read|search, modelPreference?, constraints?}. task is then only a short label.",
+    })),
     dependsOn: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 12 })),
     kind: Type.Optional(StringEnum(["analysis", "synthesis", "verification"] as const)),
   });

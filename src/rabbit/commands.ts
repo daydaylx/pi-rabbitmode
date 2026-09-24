@@ -2,6 +2,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
+import { TEMPORARY_ROLE, validateRabbitSpec } from "../orchestration/temporary-agent.ts";
 import type { RabbitStateApi } from "./state.ts";
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
 import {
@@ -74,8 +75,10 @@ const WORKFLOW_USAGE =
   `/rabbit workflow {"steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
 const REPLAN_USAGE =
   `/rabbit replan {"reason":"<konkreter neuer Befund>","steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
+const SPAWN_SPEC_USAGE =
+  '/rabbit spawn {"objective":"...","profile":"analyse|research","delegationReason":"...","context":["..."],"scope":{"include":["..."]}} (temporärer read-only Agent)';
 const USAGE =
-  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>|replan <json>|verify [profil]|save-agent <id>|save-workflow <name>";
+  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|spawn <spec-json>|define <json>|workflow <json>|replan <json>|verify [profil]|save-agent <id>|save-workflow <name>";
 
 /**
  * Phase 12 of the spec ties verification integration to a Writer/mutation
@@ -206,6 +209,41 @@ export function registerRabbitCommand(
           return;
         }
         case "spawn": {
+          if (rest.startsWith("{")) {
+            let rawSpec: unknown;
+            try {
+              rawSpec = JSON.parse(rest);
+            } catch {
+              ctx.ui.notify(`Ungültiges JSON.\n${SPAWN_SPEC_USAGE}`, "error");
+              return;
+            }
+            const validated = validateRabbitSpec(rawSpec);
+            if (!validated.ok) {
+              ctx.ui.notify(`${validated.error}\n${SPAWN_SPEC_USAGE}`, "error");
+              return;
+            }
+            if (state.mode() !== "active") {
+              ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
+              return;
+            }
+            if (state.hasActiveRun()) {
+              ctx.ui.notify("Ein Rabbit-Run ist bereits aktiv.", "warning");
+              return;
+            }
+            const specChildModel = rabbitMaxChildModel(ctx);
+            if (!specChildModel.supported) {
+              ctx.ui.notify(specChildModel.reason, "error");
+              return;
+            }
+            const specSession = workflowSessions.startNew();
+            const specResult = await specSession.start(
+              rpc,
+              [{ id: "spawn", role: TEMPORARY_ROLE, task: validated.spec.objective.slice(0, 200), spec: validated.spec, kind: "analysis" }],
+              { runController, dynamicRoles, childModel: specChildModel.model },
+            );
+            ctx.ui.notify(formatWorkflowResult(specResult), specResult.ok ? "info" : "error");
+            return;
+          }
           const { first: rawRole, rest: task } = splitFirstWord(rest);
           const role = rawRole.toLowerCase();
           if (task === "" || (!isBaselineRole(role) && !isRabbitBundledRole(role))) {

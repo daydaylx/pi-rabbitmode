@@ -1,4 +1,5 @@
 import { isBaselineRole, isRabbitBundledRole } from "./agent-factory.ts";
+import { TEMPORARY_ROLE, validateRabbitSpec } from "./temporary-agent.ts";
 
 /**
  * Declarative DAG for Phase 8 — `docs/spec/01_ARCHITECTURE.md` §5's
@@ -30,6 +31,13 @@ export interface WorkflowStepDefinition {
   dependsOn?: string[];
   /** Supervisor hint for actual runtime-phase reporting; not a permission. */
   kind?: WorkflowStepKind;
+  /**
+   * Inline temporary-agent contract for `role: "temporary"` (daydaylx/pi ADR 031).
+   * `task` stays a short label for such a step; the spec is the contract. A spec
+   * step cannot depend on other steps yet (no context transport for their
+   * outputs), but other steps may depend on it.
+   */
+  spec?: unknown;
 }
 
 export type GraphValidation = { valid: true } | { valid: false; error: string };
@@ -94,7 +102,21 @@ export function validateWorkflowGraph(
     if (!step.task || typeof step.task !== "string") {
       return { valid: false, error: `Step "${step.id}" braucht eine nicht-leere task.` };
     }
-    if (!step.role || !isSpawnableRole(step.role, options)) {
+    if (step.spec !== undefined && step.role !== TEMPORARY_ROLE) {
+      return { valid: false, error: `Step "${step.id}" hat ein spec, aber die Rolle ist nicht "${TEMPORARY_ROLE}".` };
+    }
+    if (step.role === TEMPORARY_ROLE) {
+      const spec = validateRabbitSpec(step.spec);
+      if (!spec.ok) {
+        return { valid: false, error: `Step "${step.id}": ${spec.error}` };
+      }
+      if ((step.dependsOn ?? []).length > 0) {
+        return {
+          valid: false,
+          error: `Step "${step.id}": temporäre Agenten können noch nicht von anderen Steps abhängen (kein Kontexttransport); andere Steps dürfen von ihnen abhängen.`,
+        };
+      }
+    } else if (!step.role || !isSpawnableRole(step.role, options)) {
       return { valid: false, error: `Step "${step.id}" hat eine unbekannte Rolle "${step.role}".` };
     }
     if (step.kind !== undefined && !["analysis", "synthesis", "verification"].includes(step.kind)) {

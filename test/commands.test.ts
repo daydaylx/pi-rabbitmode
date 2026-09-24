@@ -181,6 +181,42 @@ test("/rabbit spawn without a task shows usage", async () => {
   assert.match(notifications[1]?.message ?? "", /Nutzung/);
 });
 
+const SPEC_JSON = '{"objective":"Find the cause","profile":"analyse","delegationReason":"independent branch"}';
+
+test("/rabbit spawn with a spec JSON spawns a temporary agent through spec, not a role, with explicit child MAX", async () => {
+  const { api, ctx, notifications, rpc } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, `spawn ${SPEC_JSON}`);
+
+  assert.equal(notifications.length, 2);
+  assert.equal(notifications[1]?.type, "info");
+  const call = rpc.spawnCalls[0] as { agent?: string; task?: string; spec?: { objective: string }; model?: string };
+  assert.equal(call.agent, undefined);
+  assert.equal(call.spec?.objective, "Find the cause");
+  assert.equal(call.model, "test/supports-max:max");
+});
+
+test("/rabbit spawn with a spec JSON requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications, rpc } = setup();
+  await run(api, ctx, `spawn ${SPEC_JSON}`);
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+  assert.equal(rpc.spawnCalls.length, 0);
+});
+
+test("/rabbit spawn with an invalid spec JSON never spawns and shows the reason", async () => {
+  const { api, ctx, notifications, rpc } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'spawn {"objective":"x","profile":"verify","delegationReason":"r"}');
+  await run(api, ctx, 'spawn {"objective":"x","profile":"analyse","delegationReason":"r","requestedCapabilities":["write"]}');
+  await run(api, ctx, "spawn {not json");
+
+  assert.equal(rpc.spawnCalls.length, 0);
+  assert.match(notifications[1]?.message ?? "", /verify/);
+  assert.match(notifications[2]?.message ?? "", /Orchestrierung erweitert keine Rechte/);
+  assert.match(notifications[3]?.message ?? "", /Ungültiges JSON/);
+});
+
 test("/rabbit define requires RabbitMode to be active first", async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, 'define {"id":"x","purpose":"p","instructions":"i","tools":["read"],"task":"t"}');

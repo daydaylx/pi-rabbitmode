@@ -325,6 +325,30 @@ Verzichtet wird hier bewusst weiterhin auf: Schreib-/Ausführungs-Tools für
 dynamische Rollen, Nested-Delegation dynamischer Rollen und ein
 `v2`-Protokoll in `pi-subagents` selbst.
 
+### Temporäre Agenten über `spec` (daydaylx/pi ADR 031)
+
+Rabbit startet Agenten ohne Rollendatei über denselben `spec`-Vertrag wie
+normales Pi (v1-RPC `spawn` mit `spec`). Die Runtime baut einen zustandslosen
+In-Memory-Agenten (frischer Kontext, kein Memory, keine Delegation) und
+bestimmt die effektiven Tools; Rabbit erweitert nur die Orchestrierung.
+
+- `/rabbit spawn {"objective":"…","profile":"analyse","delegationReason":"…"}`
+  oder ein Workflow-Step mit `role: "temporary"` und `spec` (`task` ist dann
+  nur ein Kurzlabel).
+- Profile nur `analyse` und `research`, Fähigkeiten nur `read`/`search`.
+  `verify`, `write`, Shell, Netzwerk und Delegation werden abgelehnt:
+  Orchestrierung ist keine Berechtigung, und die Verifier-Kette läuft nur
+  über den Host-Guard in `daydaylx/pi`.
+- Temporäre Steps können noch nicht von anderen Steps abhängen (es gibt keinen
+  Kontexttransport für Ergebnisse); andere Steps dürfen von ihnen abhängen.
+- Nur die whitelisteten Spec-Felder gehen an die Runtime; das MAX-Modell setzt
+  Rabbit selbst, nicht der Spec.
+- Grenzen (`resolveRabbitLimits`): Steps 12, parallel 3, Tiefe 2, mit harten
+  Obergrenzen. Noch nicht an eine Konfigurationsquelle angebunden.
+- Die Rollenbibliothek (`rabbit-*`, Baseline-Rollen) und `/rabbit define`
+  bleiben, bis die Kette live getestet ist.
+- Live noch nicht verifiziert: der Spec-Pfad über die echte RPC-Bridge.
+
 ### Phase 8: Status-Polling — live verifiziert, ein echter Bug gefunden und behoben
 
 `spawn` startet immer detached/async (von `pi-subagents` selbst erzwungen);
