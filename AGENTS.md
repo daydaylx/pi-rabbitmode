@@ -89,6 +89,11 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
   aktiven Agenten, der das echte, per `pi.registerTool` registrierte Tool
   selbst aufruft (`src/rabbit/commands.ts`). Konkretisiert "keine
   Verification-Logik duplizieren" für diesen Command.
+- `/rabbit verify` läuft nur mit `ctx.hasUI === true` (TUI/RPC) —
+  `sendUserMessage`s erzwungener zweiter Turn korrumpiert nachweislich
+  (echter `pi -p`-Smoketest) den Single-Shot-Kontrollfluss von
+  `--print`/`--mode json`. Diese Gate nicht entfernen, ohne den
+  zugrundeliegenden Pi-Core-Konflikt anderweitig gelöst zu haben.
 - Persistenz nur explizit: `/rabbit save-agent`/`/rabbit save-workflow`
   sind die einzigen Pfade, über die etwas RabbitMode-Erzeugtes eine
   Session überlebt. Kein anderer Code-Pfad darf automatisch persistieren.

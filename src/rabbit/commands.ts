@@ -328,6 +328,27 @@ export function registerRabbitCommand(
           // touches no Rabbit-specific state or RPC, it only hands off to
           // the real project_check tool via the active agent's own turn —
           // see the doc comment on projectCheckPrompt above.
+          //
+          // `hasUI` gate found via a real `pi -p "/rabbit verify"` smoke
+          // test (not a theoretical concern): `sendUserMessage`'s forced
+          // second turn, issued from inside a command handler that is
+          // itself running outside the normal interactive turn loop,
+          // corrupts print/json (single-shot) mode's turn bookkeeping —
+          // observed as "turn_end could not resolve the persisted
+          // assistant entry ID" plus cascading "stale ctx" errors from
+          // unrelated extensions (plan-mode, setup-core). `hasUI` is false
+          // exactly in print/json mode and true in tui/rpc
+          // (`ExtensionContext.hasUI` doc: "true in TUI and RPC modes") —
+          // the same discriminator sendUserMessage's own callers need,
+          // used here to refuse before triggering the corruption rather
+          // than let it happen.
+          if (!ctx.hasUI) {
+            ctx.ui.notify(
+              "/rabbit verify braucht eine interaktive Session (TUI oder RPC) — im --print/--mode json Einzelschuss-Modus nicht verfügbar.",
+              "warning",
+            );
+            return;
+          }
           if (!ctx.isIdle()) {
             ctx.ui.notify(
               "Ein Turn läuft gerade — /rabbit verify danach erneut ausführen.",

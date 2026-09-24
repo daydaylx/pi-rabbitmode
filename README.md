@@ -170,6 +170,20 @@ danach und eine eigene Synthese — das bleibt, wie im Contract
 beschrieben, dem aktiven Agenten und Pis bestehender Policy überlassen,
 nicht RabbitMode.
 
+**Live gefundene Einschränkung:** ein echter `pi -e /home/g/Projekte/
+pi-rabbitmode --model <erlaubt> -p "/rabbit verify"`-Smoketest zeigte,
+dass `sendUserMessage`s erzwungener zweiter Turn — von einem
+Command-Handler außerhalb der normalen interaktiven Turn-Loop ausgelöst
+— den Single-Shot-Kontrollfluss von `--print`/`--mode json` korrumpiert
+(`"turn_end could not resolve the persisted assistant entry ID"`, dazu
+kaskadierende `"stale ctx"`-Fehler aus fremden Extensions wie
+`plan-mode`/`setup-core`). `/rabbit verify` prüft deshalb jetzt zuerst
+`ctx.hasUI` (laut `ExtensionContext`-Typdefinition `true` nur in
+TUI/RPC, `false` in print/json) und bricht dort sauber mit einer
+Warnung ab, statt den Turn-Zustand zu korrumpieren. In der
+interaktiven TUI (der eigentlichen Zielumgebung) bleibt `/rabbit
+verify` unverändert nutzbar.
+
 ### Phase 13: Persistenz — save-agent bewusst als Move, save-workflow bewusst ohne Lademechanismus
 
 `docs/spec/05_IMPLEMENTATION_PHASES.md` gibt für Phase 13 nur die beiden

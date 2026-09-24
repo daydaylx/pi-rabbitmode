@@ -514,6 +514,26 @@ test("/rabbit verify does not send a message while a turn is running", async () 
   assert.equal(notifications[0]?.type, "warning");
 });
 
+test("/rabbit verify refuses under --print/--mode json (no UI) instead of corrupting turn state", async () => {
+  // Found via a real `pi -p "/rabbit verify"` smoke test: sendUserMessage's
+  // forced second turn, issued from a command handler outside the normal
+  // interactive turn loop, broke print/json mode's single-shot turn
+  // bookkeeping ("turn_end could not resolve the persisted assistant entry
+  // ID", plus cascading "stale ctx" errors from unrelated extensions).
+  // ctx.hasUI is false exactly in that mode.
+  const { api } = setup();
+  const { ctx: noUiCtx, notifications: noUiNotifications } = createFakeCommandContext({
+    model: fakeModelSupportingMax(),
+    hasUI: false,
+  });
+
+  await run(api, noUiCtx, "verify");
+
+  assert.equal(api.sentUserMessages.length, 0);
+  assert.equal(noUiNotifications[0]?.type, "warning");
+  assert.match(noUiNotifications[0]?.message ?? "", /interaktive Session/);
+});
+
 test("/rabbit verify never emits on an aurora-ui/* channel", async () => {
   const { api, ctx } = setup();
   await run(api, ctx, "verify");

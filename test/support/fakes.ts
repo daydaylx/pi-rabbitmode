@@ -359,6 +359,7 @@ export interface FakeCommandContext {
   ui: FakeCommandContextUi;
   model?: unknown;
   isIdle(): boolean;
+  hasUI: boolean;
 }
 
 export function createFakeCommandContext(options?: {
@@ -369,6 +370,8 @@ export function createFakeCommandContext(options?: {
   failThemeNames?: string[];
   /** `ctx.isIdle()` return value. Default: true (matches a real idle session). */
   idle?: boolean;
+  /** `ctx.hasUI` value. Default: true (matches tui/rpc; false matches print/json). */
+  hasUI?: boolean;
 }): {
   ctx: FakeCommandContext;
   notifications: RecordedNotify[];
@@ -385,6 +388,7 @@ export function createFakeCommandContext(options?: {
   const ctx: FakeCommandContext = {
     model: options?.model,
     isIdle: () => options?.idle ?? true,
+    hasUI: options?.hasUI ?? true,
     ui: {
       notify(message, type) {
         notifications.push({ message, type });
