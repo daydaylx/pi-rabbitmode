@@ -3,7 +3,8 @@
 ## Aktueller Stand
 
 Dieses Repository befindet sich in **Phase 1–10 + Phase 12 (abgespeckt) +
-Phase 13** (Grundgerüst,
+Phase 13; Phase 11 bewusst nicht gebaut, Phase 14 bewusst zurückgestellt**
+(Grundgerüst,
 session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
 erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
 `aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
@@ -40,7 +41,13 @@ ephemerale `/rabbit define`-Rolle dauerhaft (verschiebt die Datei nach
 <name>` schreibt einen reinen JSON-Audit-Snapshot der Workflow-
 Revisionshistorie nach `.pi/rabbit-workflows/` — bewusst ohne
 Lademechanismus (vollständige Begründung in README.md unter "Phase 13:
-Persistenz"). Es gibt noch keinen Writer und kein
+Persistenz"). Phase 14 (Benchmark/Rollout, empirischer Standard-vs-
+Rabbit-Vergleich) ist keine Code-/Test-Aufgabe, sondern eine Messaufgabe
+mit echten, laufenden Pi-Sessions — aus einer Umsetzungssitzung ohne
+Zugriff auf eine laufende Pi-TUI-Instanz nicht ehrlich durchführbar
+(weder als Scaffolding noch mit erfundenen Zahlen) und bleibt deshalb
+bewusst offen (vollständige Begründung in README.md unter "Bewusst
+zurückgestellt: Phase 14"). Es gibt noch keinen Writer und kein
 `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
 Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über

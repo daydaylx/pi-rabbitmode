@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–10 Grundgerüst + Phase 12 (abgespeckt) + Phase 13
+## Status: Phase 1–10, 12 (abgespeckt), 13 umgesetzt · Phase 11 bewusst nicht gebaut · Phase 14 zurückgestellt
 
 Diese Version implementiert ausschließlich:
 
@@ -199,6 +199,24 @@ dokumentiert, nicht aus der Spec übernommen.
   bzw. der laufenden `WorkflowSession`), nicht auf einem
   repository-fremden Tool.
 
+### Bewusst zurückgestellt: Phase 14 (Benchmark/Rollout)
+
+`docs/spec/05_IMPLEMENTATION_PHASES.md` verlangt für Phase 14 einen
+empirischen Vergleich Standard-Pi vs. RabbitMode: Qualität,
+Tokenverbrauch, Modellaufrufe, Laufzeit, unnötige Delegationen,
+gefundene Fehler, Verifier-Abdeckung, Fehlerraten, Recovery-Verhalten.
+
+Das ist grundsätzlich anders als Phase 0–13: keine Code-/Test-Aufgabe,
+sondern eine Messaufgabe, die echte, laufende Pi-Sessions mit echten
+Vergleichsaufgaben und echtem Token-/Zeit-Tracking braucht. Eine
+Umsetzungssitzung ohne Zugriff auf eine laufende Pi-TUI-Instanz kann
+sie nicht durchführen — weder ein Scaffolding vorab noch erfundene
+Zahlen wären eine ehrliche Erfüllung dieser Phase. Phase 14 bleibt
+deshalb bewusst offen, bis jemand mit einer echten Pi-Session die
+Vergleichsläufe tatsächlich durchführt. Alle anderen Phasen (0–13,
+mit Phase 11 bewusst nicht und Phase 12 bewusst abgespeckt) sind
+umgesetzt.
+
 ### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
 
 `docs/spec/04_RABBIT_TUI.md` beschreibt eine absichtlich übertriebene,
@@ -358,7 +376,8 @@ Teil setzt Phase 11 voraus, `/rabbit verify` deckt die abgespeckte Form
 bereits ab (siehe oben) · Phase 13 Persistenz — `/rabbit save-agent` und
 `/rabbit save-workflow` bereits umgesetzt (siehe oben); ein
 `/rabbit workflow <gespeicherter-name>`-Lademechanismus bleibt bewusst
-offen · Phase 14 Benchmark.
+offen · Phase 14 Benchmark/Rollout (zurückgestellt, siehe „Bewusst
+zurückgestellt: Phase 14" unten).
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 
