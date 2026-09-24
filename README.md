@@ -305,22 +305,34 @@ Verzichtet wird hier bewusst weiterhin auf: Schreib-/Ausführungs-Tools für
 dynamische Rollen, Nested-Delegation dynamischer Rollen und ein
 `v2`-Protokoll in `pi-subagents` selbst.
 
-### Bewusste Grenze in Phase 8: Status-Polling ist best-effort, nicht live verifiziert
+### Phase 8: Status-Polling — live verifiziert, ein echter Bug gefunden und behoben
 
 `spawn` startet immer detached/async (von `pi-subagents` selbst erzwungen);
 um zu wissen, wann ein Step fertig ist, pollt `src/orchestration/
-status-adapter.ts` die `status`-RPC-Methode. Die genaue Antwortstruktur für
-einen noch laufenden vs. fertigen Run ist aus dem `Details`/`SingleResult`-
-Typ in `~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/shared/
-types/results.ts` **statisch erschlossen, nicht gegen einen echten Lauf
-verifiziert** — der einzige verfügbare Live-Klon hat bereits nicht
-committete Arbeit einer anderen Session (siehe Phase-6-Commit). Die
-Interpretation ist deshalb bewusst in einer einzigen Funktion
-(`interpretStatusReply`) isoliert und mit einer auffälligen ⚠️-Markierung
-versehen, damit sie an genau einer Stelle korrigiert werden kann, sobald
-sie gegen einen echten Lauf geprüft wurde. Der DAG-Scheduler selbst
-(Abhängigkeiten, Parallelitätsgrenze, Skip-Kaskaden) ist davon unabhängig
-und vollständig getestet.
+status-adapter.ts` die `status`-RPC-Methode. Die Interpretation dieser
+Antwort war ursprünglich nur statisch aus dem `Details`/`SingleResult`-Typ
+in `~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/shared/
+types/results.ts` erschlossen, nicht gegen einen echten Lauf verifiziert.
+
+Ein echter `pi -e /home/g/Projekte/pi-rabbitmode -p "/rabbit on" "/rabbit
+workflow {...}"`-Smoketest hat das jetzt nachgeholt — und einen echten Bug
+gefunden: ein `status`-Poll unmittelbar nach `spawn` (bevor `pi-subagents`
+die Statusdatei des neuen Async-Runs überhaupt geschrieben hat) kam als
+`success: false, error: {code: "execution_failed", message: "Status file
+not found."}` zurück. Die ursprüngliche Logik behandelte **jeden**
+`!reply.success`-Fall als sofortigen, endgültigen Fehlschlag — dadurch
+schlug praktisch jeder Workflow-Step innerhalb von ~1 Sekunde fehl, bevor
+der gespawnte Agent überhaupt zu arbeiten begonnen hatte. Das ist ein reiner
+Race, kein echter Fehlschlag — derselbe „noch nicht fertig"-Zustand wie ein
+leeres `results`-Array, nur über den Fehlerkanal statt über eine
+Erfolgs-Hülle gemeldet. `interpretStatusReply` behandelt diesen exakten
+Text jetzt identisch zu einem leeren `results`-Array (weiterpollen), der
+allgemeine Poll-Timeout (10 Minuten) bleibt als Obergrenze unverändert
+bestehen. Nach dem Fix hat derselbe Smoketest einen echten, vollständigen
+Workflow-Step (Ergebnis korrekt bis zum fertigen Text durchgereicht)
+erfolgreich abgeschlossen. Der DAG-Scheduler selbst (Abhängigkeiten,
+Parallelitätsgrenze, Skip-Kaskaden) war davon unabhängig und bereits
+vollständig getestet.
 
 ## Architektur (Zielbild, nicht vollständig umgesetzt)
 

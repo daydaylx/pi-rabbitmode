@@ -12,6 +12,34 @@ test("interpretStatusReply treats an RPC-level error as terminal and failed", ()
   assert.deepEqual(outcome, { terminal: true, failed: true, text: "run not found" });
 });
 
+test('interpretStatusReply treats a "Status file not found." RPC error as not yet terminal, not a failure', () => {
+  // Verified live against a real pi-subagents run: a status poll issued
+  // immediately after spawn — before the async run's status file exists
+  // on disk — comes back exactly like this, not as an empty-results
+  // success reply. See status-adapter.ts's module doc comment.
+  const outcome = interpretStatusReply({
+    version: 1,
+    requestId: "x",
+    success: false,
+    error: { code: "execution_failed", message: "Status file not found." },
+  });
+  assert.deepEqual(outcome, { terminal: false, failed: false });
+});
+
+test('interpretStatusReply still treats a different RPC-level error message as terminal and failed (only the exact "Status file not found." text is special-cased)', () => {
+  const outcome = interpretStatusReply({
+    version: 1,
+    requestId: "x",
+    success: false,
+    error: { code: "execution_failed", message: "Status file not found for some other reason." },
+  });
+  assert.deepEqual(outcome, {
+    terminal: true,
+    failed: true,
+    text: "Status file not found for some other reason.",
+  });
+});
+
 test("interpretStatusReply treats an empty/missing results array as not yet terminal", () => {
   assert.deepEqual(
     interpretStatusReply({ version: 1, requestId: "x", success: true, data: {} }),
@@ -109,6 +137,34 @@ test("pollStepUntilTerminal polls again while the run is still active", async ()
   const outcome = await pollStepUntilTerminal(rpc as never, "run-1", { sleep: instantSleep });
   assert.equal(calls, 3);
   assert.deepEqual(outcome, { terminal: true, failed: false, text: "finished" });
+});
+
+test('pollStepUntilTerminal polls past an initial "Status file not found." race instead of failing the step within one poll', async () => {
+  // Reproduces the real bug this session's live smoke test found: the
+  // first status poll right after spawn genuinely gets this reply from
+  // pi-subagents before completing normally.
+  let calls = 0;
+  const rpc = fakeRpc(() => {
+    calls += 1;
+    if (calls === 1) {
+      return {
+        version: 1,
+        requestId: "x",
+        success: false,
+        error: { code: "execution_failed", message: "Status file not found." },
+      };
+    }
+    return {
+      version: 1,
+      requestId: "x",
+      success: true,
+      data: { text: "real work done", details: { results: [{ exitCode: 0 }] } },
+    };
+  });
+
+  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", { sleep: instantSleep });
+  assert.equal(calls, 2);
+  assert.deepEqual(outcome, { terminal: true, failed: false, text: "real work done" });
 });
 
 test("pollStepUntilTerminal passes {id: runId} as the status params", async () => {

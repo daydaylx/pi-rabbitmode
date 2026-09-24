@@ -16,8 +16,13 @@ Abhängigkeiten und begrenzter Parallelität, `/rabbit replan` für
 begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen),
 `maxSubagentDepth: 2` auf jeder von `pi-rabbitmode` geschriebenen Rolle
 (reutilisiert `pi-subagents`' eigenen Tiefen-Mechanismus statt einer
-zweiten Engine) — siehe README.md für Sicherheitsgrenzen und die noch
-unverifizierte Status-Polling-Annahme. Dynamische Rollendateien sind
+zweiten Engine) — siehe README.md für Sicherheitsgrenzen. Status-Polling
+(`src/orchestration/status-adapter.ts`) ist live gegen einen echten
+`pi-subagents`-Lauf verifiziert; ein dabei gefundener Race (`status`-Poll
+unmittelbar nach `spawn` liefert `"Status file not found."`, wurde
+fälschlich als sofortiger Fehlschlag statt als "noch nicht fertig"
+behandelt) ist behoben — siehe README.md unter "Phase 8: Status-Polling".
+Dynamische Rollendateien sind
 strikt an ein aktives RabbitMode-Fenster gebunden: der `rabbit:mode-
 changed`-Listener in `src/extension/index.ts` räumt bei jeder
 Deaktivierung (`/rabbit off`, Toggle, Shortcut) auf, `session_shutdown`
