@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { after, afterEach, before, test } from "node:test";
 import {
   DYNAMIC_ROLE_PACKAGE,
+  DYNAMIC_ROLE_SAVED_DIR,
   DYNAMIC_ROLE_TOOL_ALLOWLIST,
   MAX_DYNAMIC_ROLES_PER_SESSION,
   RABBIT_MAX_SUBAGENT_DEPTH,
@@ -213,4 +214,44 @@ test("cleanupAll() on an empty registry does not throw", async () => {
   const registry = createDynamicRoleRegistry();
   await registry.cleanupAll();
   assert.equal(registry.size(), 0);
+});
+
+test("save() moves the file to rabbit-saved/ and stops tracking it", async () => {
+  const registry = createDynamicRoleRegistry();
+  const defined = await registry.define(scratchCwd, validRequest());
+  assert.equal(defined.ok, true);
+  if (!defined.ok) return;
+
+  const saved = await registry.save(defined.role.id, scratchCwd);
+  assert.equal(saved.ok, true);
+  if (!saved.ok) return;
+  assert.equal(
+    saved.filePath,
+    path.join(scratchCwd, ".pi", "agents", DYNAMIC_ROLE_SAVED_DIR, "api-contract-checker.md"),
+  );
+
+  assert.equal(registry.size(), 0);
+  await assert.rejects(readFile(defined.role.filePath, "utf8"));
+  const content = await readFile(saved.filePath, "utf8");
+  assert.match(content, /\nname: api-contract-checker\n/);
+});
+
+test("save() on an unknown/already-saved id reports an error, not a crash", async () => {
+  const registry = createDynamicRoleRegistry();
+  const result = await registry.save("never-defined", scratchCwd);
+  assert.equal(result.ok, false);
+});
+
+test("cleanupAll() after save() does not touch the saved file", async () => {
+  const registry = createDynamicRoleRegistry();
+  const defined = await registry.define(scratchCwd, validRequest());
+  assert.equal(defined.ok, true);
+  if (!defined.ok) return;
+  const saved = await registry.save(defined.role.id, scratchCwd);
+  assert.equal(saved.ok, true);
+  if (!saved.ok) return;
+
+  await registry.cleanupAll();
+
+  await readFile(saved.filePath, "utf8"); // must not throw
 });

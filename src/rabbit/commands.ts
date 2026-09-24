@@ -19,6 +19,7 @@ import type { WorkflowRunResult, WorkflowStepResult } from "../orchestration/wor
 import type { WorkflowStepDefinition, WorkflowStepStatus } from "../orchestration/graph.ts";
 import type { WorkflowSessionHolder } from "../orchestration/workflow-session-holder.ts";
 import { MAX_WORKFLOW_REVISIONS } from "../orchestration/workflow-session.ts";
+import { saveWorkflowSnapshot } from "../orchestration/workflow-persistence.ts";
 
 /**
  * A short ping, not a hard dependency: `/rabbit status` should stay fast
@@ -67,7 +68,7 @@ const WORKFLOW_USAGE =
 const REPLAN_USAGE =
   `/rabbit replan {"reason":"<konkreter neuer Befund>","steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
 const USAGE =
-  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>|replan <json>|verify [profil]";
+  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>|replan <json>|verify [profil]|save-agent <id>|save-workflow <name>";
 
 /**
  * Phase 12 of the spec ties verification integration to a Writer/mutation
@@ -148,10 +149,11 @@ export function registerRabbitCommand(
   rpc: SubagentRpcClient,
   dynamicRoles: DynamicRoleRegistry,
   workflowSessions: WorkflowSessionHolder,
+  saveWorkflow: typeof saveWorkflowSnapshot,
 ): void {
   pi.registerCommand("rabbit", {
     description:
-      "RabbitMode (Phase 1-10 Grundgerüst): on|off|status|stop|spawn|define|workflow|replan|verify",
+      "RabbitMode (Phase 1-10 Grundgerüst): on|off|status|stop|spawn|define|workflow|replan|verify|save-agent|save-workflow",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const trimmed = args.trim();
       const { first, rest } = splitFirstWord(trimmed);
@@ -213,6 +215,24 @@ export function registerRabbitCommand(
           }
           const result = await spawnDynamicRole(rpc, dynamicRoles, ctx.cwd, parsed);
           ctx.ui.notify(result.message, result.ok ? "info" : "error");
+          return;
+        }
+        case "save-agent": {
+          if (rest === "") {
+            ctx.ui.notify("Nutzung: /rabbit save-agent <id>", "info");
+            return;
+          }
+          if (state.mode() !== "active") {
+            ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
+            return;
+          }
+          const saved = await dynamicRoles.save(rest, ctx.cwd);
+          ctx.ui.notify(
+            saved.ok
+              ? `Rolle "${rest}" dauerhaft gespeichert: ${saved.filePath} (überlebt /rabbit off und Session-Ende).`
+              : saved.error,
+            saved.ok ? "info" : "error",
+          );
           return;
         }
         case "workflow": {
@@ -277,6 +297,29 @@ export function registerRabbitCommand(
           ctx.ui.notify(
             `Revision ${session.currentRevision()}/${MAX_WORKFLOW_REVISIONS}:\n${formatWorkflowResult(result)}`,
             result.ok ? "info" : "error",
+          );
+          return;
+        }
+        case "save-workflow": {
+          if (rest === "") {
+            ctx.ui.notify("Nutzung: /rabbit save-workflow <name>", "info");
+            return;
+          }
+          if (state.mode() !== "active") {
+            ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
+            return;
+          }
+          const session = workflowSessions.current();
+          if (!session) {
+            ctx.ui.notify("Kein laufender Workflow — erst /rabbit workflow starten.", "warning");
+            return;
+          }
+          const saved = await saveWorkflow(ctx.cwd, rest, session);
+          ctx.ui.notify(
+            saved.ok
+              ? `Workflow "${rest}" gespeichert: ${saved.filePath} (Audit-Snapshot, kein Lademechanismus).`
+              : saved.error,
+            saved.ok ? "info" : "error",
           );
           return;
         }

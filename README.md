@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–10 Grundgerüst + Phase 12 (abgespeckt)
+## Status: Phase 1–10 Grundgerüst + Phase 12 (abgespeckt) + Phase 13
 
 Diese Version implementiert ausschließlich:
 
@@ -69,6 +69,19 @@ Diese Version implementiert ausschließlich:
   eine Aufforderung an den aktiven Agenten, `project_check` mit dem
   angegebenen Profil (Default `verify`) selbst auszuführen. Nicht an
   aktives RabbitMode gebunden (berührt keinen Rabbit-eigenen State).
+- `/rabbit save-agent <id>` (Phase 13) — verschiebt eine noch nicht
+  aufgeräumte `/rabbit define`-Rolle von `.pi/agents/rabbit-dynamic/`
+  (ephemeral, auto-cleanup) nach `.pi/agents/rabbit-saved/` und nimmt sie
+  aus der Cleanup-Verfolgung — sie überlebt `/rabbit off` und Session-Ende.
+  Kein neues Dateiformat, keine umgeschriebene Frontmatter: derselbe
+  Inhalt, nur nicht mehr zum Löschen vorgemerkt. Explizit, nie automatisch.
+- `/rabbit save-workflow <name>` (Phase 13) — schreibt die vollständige,
+  append-only Revisionshistorie des laufenden Workflows (Steps + Replan-
+  Gründe + kondensierte Step-Ergebnisse) als JSON nach
+  `.pi/rabbit-workflows/<name>.json`. Reiner Audit-/Referenz-Snapshot: es
+  gibt bewusst **keinen** Lademechanismus (`/rabbit workflow` akzeptiert
+  weiterhin nur Inline-JSON) — das wäre neue, nicht angeforderte
+  Orchestrierungs-Oberfläche, keine Persistenz von etwas, das bereits läuft.
 - Nested Delegation (`docs/spec/02_CONTRACTS.md` §6: „Nested Depth
   maximal 2"): keine eigene Tiefenzählung — `pi-subagents` hat dafür
   bereits einen Mechanismus (`PI_SUBAGENT_DEPTH`/`PI_SUBAGENT_MAX_DEPTH`,
@@ -156,6 +169,35 @@ Bewusst nicht gebaut in dieser abgespeckten Form: ein automatischer
 danach und eine eigene Synthese — das bleibt, wie im Contract
 beschrieben, dem aktiven Agenten und Pis bestehender Policy überlassen,
 nicht RabbitMode.
+
+### Phase 13: Persistenz — save-agent bewusst als Move, save-workflow bewusst ohne Lademechanismus
+
+`docs/spec/05_IMPLEMENTATION_PHASES.md` gibt für Phase 13 nur die beiden
+Command-Namen vor, explizit nutzergetriggert, nie automatisch — die
+Formatentscheidungen unten sind diese Runde selbst getroffen und hier
+dokumentiert, nicht aus der Spec übernommen.
+
+- `/rabbit save-agent <id>` erfindet kein neues Dateiformat: `pi-subagents`
+  entdeckt `.pi/agents/` bereits rekursiv (siehe Phase 7 oben), also
+  verschiebt `save()` (`src/orchestration/dynamic-role.ts`) die
+  bestehende `.md`-Datei nur von `rabbit-dynamic/` (auto-cleanup) nach
+  `rabbit-saved/` (kein Cleanup mehr) und behält die
+  `package: rabbit-dynamic`-Frontmatter bewusst bei — ehrliche Herkunft
+  ("diese Rolle wurde ursprünglich von RabbitMode automatisch erzeugt"),
+  kein Grund, das zu verschleiern.
+- `/rabbit save-workflow <name>` (`src/orchestration/
+  workflow-persistence.ts`) ist ein reiner JSON-Audit-Snapshot der
+  vollständigen `WorkflowSession.revisions()`-Historie. Es gibt bewusst
+  **keinen** `/rabbit workflow <gespeicherter-name>`-Lademechanismus:
+  `/rabbit workflow` akzeptiert weiterhin ausschließlich Inline-JSON. Ein
+  Loader wäre neue, von der Spec nicht verlangte Orchestrierungs-Oberfläche
+  (verstößt gegen die Komplexitätsregel) — diese Runde persistiert, was
+  bereits gelaufen ist, sie baut keine Wiederverwendungs-Funktion.
+- Beide Commands sind, wie `/rabbit define`/`/rabbit workflow`, an
+  aktives RabbitMode gebunden (anders als `/rabbit verify`): sie
+  operieren direkt auf Rabbit-eigenem State (der Dynamic-Role-Registry
+  bzw. der laufenden `WorkflowSession`), nicht auf einem
+  repository-fremden Tool.
 
 ### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
 
@@ -280,6 +322,8 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit workflow <json>` | führt einen deklarativen DAG aus Steps mit Abhängigkeiten aus (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit replan <json>` | fügt dem laufenden Workflow eine begründete, numerierte Revision hinzu, max. 3 (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit verify [profil]` | fordert `project_check` mit dem angegebenen Profil (Default `verify`) beim aktiven Agenten an (siehe „Bewusst abgespeckt: Phase 12" unten; **nicht** an aktives RabbitMode gebunden) |
+| `/rabbit save-agent <id>` | macht eine noch ephemerale `/rabbit define`-Rolle dauerhaft (siehe oben; nur bei aktivem RabbitMode) |
+| `/rabbit save-workflow <name>` | schreibt einen JSON-Audit-Snapshot des laufenden Workflows (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit stop` | meldet noch immer "kein aktiver Rabbit-Run" — Interrupt/Stop für einen laufenden Workflow ist noch nicht angebunden |
 
 Der State ist rein session-lokal (In-Memory), wird nirgends persistiert und
@@ -311,8 +355,10 @@ Status-Polling live verifizieren · inline `/rabbit define` innerhalb
 eines Workflow-Steps · Phase 11 Writer (zurückgestellt, siehe oben) ·
 Phase 12 Verification-Integration vollständig — mutationsgekoppelter
 Teil setzt Phase 11 voraus, `/rabbit verify` deckt die abgespeckte Form
-bereits ab (siehe oben) · Phase 13 Persistenz (explizit) · Phase 14
-Benchmark.
+bereits ab (siehe oben) · Phase 13 Persistenz — `/rabbit save-agent` und
+`/rabbit save-workflow` bereits umgesetzt (siehe oben); ein
+`/rabbit workflow <gespeicherter-name>`-Lademechanismus bleibt bewusst
+offen · Phase 14 Benchmark.
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 

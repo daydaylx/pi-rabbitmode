@@ -169,16 +169,21 @@ export function fakeModelWithoutReasoning(id = "test/no-reasoning") {
 export function createFakeDynamicRoleRegistry(options?: {
   defineBehavior?: "success" | "error";
   defineError?: string;
+  saveBehavior?: "success" | "error";
+  saveError?: string;
 }) {
   const behavior = options?.defineBehavior ?? "success";
+  const saveBehavior = options?.saveBehavior ?? "success";
   const defineCalls: { cwd: string; raw: unknown }[] = [];
   const cleanupCalls: string[] = [];
+  const saveCalls: { id: string; cwd: string }[] = [];
   let cleanupAllCalls = 0;
 
   return {
     size: () => 0,
     defineCalls,
     cleanupCalls,
+    saveCalls,
     cleanupAllCallCount: () => cleanupAllCalls,
     define: async (cwd: string, raw: unknown) => {
       defineCalls.push({ cwd, raw });
@@ -198,6 +203,13 @@ export function createFakeDynamicRoleRegistry(options?: {
     },
     cleanupAll: async () => {
       cleanupAllCalls += 1;
+    },
+    save: async (id: string, cwd: string) => {
+      saveCalls.push({ id, cwd });
+      if (saveBehavior === "error") {
+        return { ok: false as const, error: options?.saveError ?? "fake save error" };
+      }
+      return { ok: true as const, filePath: `/fake/.pi/agents/rabbit-saved/${id}.md` };
     },
   };
 }
@@ -302,6 +314,28 @@ export function createFakeSubagentRpcClient(options?: {
     pingCallCount: () => pingCalls,
     spawnCalls,
   };
+}
+
+/**
+ * A fast, no-filesystem stand-in for `saveWorkflowSnapshot`
+ * (`src/orchestration/workflow-persistence.ts`) so `commands.ts` unit tests
+ * don't touch disk. `test/workflow-persistence.test.ts` exercises the real
+ * implementation separately.
+ */
+export function createFakeSaveWorkflowSnapshot(options?: {
+  behavior?: "success" | "error";
+  error?: string;
+}) {
+  const behavior = options?.behavior ?? "success";
+  const calls: { cwd: string; name: string }[] = [];
+  const fn = async (cwd: string, name: string) => {
+    calls.push({ cwd, name });
+    if (behavior === "error") {
+      return { ok: false as const, error: options?.error ?? "fake save-workflow error" };
+    }
+    return { ok: true as const, filePath: `/fake/.pi/rabbit-workflows/${name}.json` };
+  };
+  return { fn, calls };
 }
 
 export interface RecordedNotify {

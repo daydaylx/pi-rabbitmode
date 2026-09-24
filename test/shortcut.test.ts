@@ -9,6 +9,7 @@ import {
   createFakeCommandContext,
   createFakeDynamicRoleRegistry,
   createFakeExtensionApi,
+  createFakeSaveWorkflowSnapshot,
   createFakeSubagentRpcClient,
   fakeModelSupportingMax,
 } from "./support/fakes.ts";
@@ -32,6 +33,7 @@ test("shortcut toggles the same state as /rabbit toggle (single code path)", asy
     createFakeSubagentRpcClient() as never,
     createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
+    createFakeSaveWorkflowSnapshot().fn as never,
   );
   registerRabbitShortcut(api as unknown as ExtensionAPI, state);
   const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });

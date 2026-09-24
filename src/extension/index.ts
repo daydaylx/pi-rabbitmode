@@ -5,6 +5,7 @@ import { createRabbitState } from "../rabbit/state.ts";
 import { RABBIT_MODE_CHANGED_EVENT, isRabbitModeChangedEvent } from "../rabbit/events.ts";
 import { createDynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
 import { createWorkflowSessionHolder } from "../orchestration/workflow-session-holder.ts";
+import { saveWorkflowSnapshot } from "../orchestration/workflow-persistence.ts";
 import { createSubagentRpcClient } from "../runtime/subagents-rpc.ts";
 
 /**
@@ -25,7 +26,7 @@ export default function rabbitModeExtension(pi: ExtensionAPI): void {
   const rpc = createSubagentRpcClient(pi);
   const dynamicRoles = createDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
-  registerRabbitCommand(pi, state, rpc, dynamicRoles, workflowSessions);
+  registerRabbitCommand(pi, state, rpc, dynamicRoles, workflowSessions, saveWorkflowSnapshot);
   registerRabbitShortcut(pi, state);
 
   // A dynamic role file must never outlive an active RabbitMode window —

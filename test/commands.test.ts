@@ -8,6 +8,7 @@ import {
   createFakeCommandContext,
   createFakeDynamicRoleRegistry,
   createFakeExtensionApi,
+  createFakeSaveWorkflowSnapshot,
   createFakeSubagentRpcClient,
   fakeModelSupportingMax,
 } from "./support/fakes.ts";
@@ -18,17 +19,19 @@ function setup() {
   const rpc = createFakeSubagentRpcClient();
   const dynamicRoles = createFakeDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
+  const saveWorkflow = createFakeSaveWorkflowSnapshot();
   registerRabbitCommand(
     api as unknown as ExtensionAPI,
     state,
     rpc as never,
     dynamicRoles as never,
     workflowSessions,
+    saveWorkflow.fn as never,
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, ctx, notifications, rpc, dynamicRoles, workflowSessions };
+  return { api, state, ctx, notifications, rpc, dynamicRoles, workflowSessions, saveWorkflow };
 }
 
 async function run(
@@ -94,6 +97,7 @@ test("/rabbit status reports pi-subagents availability via ping", async () => {
     rpc as never,
     createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
+    createFakeSaveWorkflowSnapshot().fn as never,
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
@@ -115,6 +119,7 @@ test("/rabbit status reports pi-subagents as unreachable on ping timeout", async
     rpc as never,
     createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
+    createFakeSaveWorkflowSnapshot().fn as never,
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
@@ -199,6 +204,53 @@ test("/rabbit define with valid JSON calls the dynamic role registry and reports
 
   assert.equal(dynamicRoles.defineCalls.length, 1);
   assert.equal(notifications[1]?.type, "info");
+});
+
+test("/rabbit save-agent requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "save-agent api-checker");
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+});
+
+test("/rabbit save-agent with no argument shows its usage", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "save-agent");
+
+  assert.match(notifications[1]?.message ?? "", /rabbit save-agent/);
+});
+
+test("/rabbit save-agent calls the registry and reports the permanent path", async () => {
+  const { api, ctx, notifications, dynamicRoles } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "save-agent api-checker");
+
+  assert.equal(dynamicRoles.saveCalls.length, 1);
+  assert.equal(dynamicRoles.saveCalls[0]?.id, "api-checker");
+  assert.equal(notifications[1]?.type, "info");
+  assert.match(notifications[1]?.message ?? "", /rabbit-saved/);
+});
+
+test("/rabbit save-agent reports a registry error, not a crash", async () => {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const dynamicRoles = createFakeDynamicRoleRegistry({ saveBehavior: "error", saveError: "not found" });
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    createFakeSubagentRpcClient() as never,
+    dynamicRoles as never,
+    createWorkflowSessionHolder(),
+    createFakeSaveWorkflowSnapshot().fn as never,
+  );
+  const { ctx, notifications } = createFakeCommandContext({ model: fakeModelSupportingMax() });
+
+  await run(api, ctx, "on");
+  await run(api, ctx, "save-agent never-defined");
+
+  assert.equal(notifications[1]?.type, "error");
+  assert.match(notifications[1]?.message ?? "", /not found/);
 });
 
 test("/rabbit workflow requires RabbitMode to be active first", async () => {
@@ -307,6 +359,67 @@ test("/rabbit replan with a valid reason and new step adds revision 2", async ()
   assert.equal(workflowSessions.current()?.currentRevision(), 2);
 });
 
+test("/rabbit save-workflow requires RabbitMode to be active first", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "save-workflow audit-1");
+
+  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
+});
+
+test("/rabbit save-workflow with no argument shows its usage", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "save-workflow");
+
+  assert.match(notifications[1]?.message ?? "", /rabbit save-workflow/);
+});
+
+test("/rabbit save-workflow without a prior /rabbit workflow is rejected", async () => {
+  const { api, ctx, notifications } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, "save-workflow audit-1");
+
+  assert.match(notifications[1]?.message ?? "", /Kein laufender Workflow/);
+});
+
+test("/rabbit save-workflow surfaces a persistence error as an error notification, not a crash", async () => {
+  // Name validation itself lives in saveWorkflowSnapshot
+  // (test/workflow-persistence.test.ts) — this only checks that
+  // commands.ts passes an error result through correctly.
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const workflowSessions = createWorkflowSessionHolder();
+  const saveWorkflow = createFakeSaveWorkflowSnapshot({ behavior: "error", error: "ungültiger Name" });
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    createFakeSubagentRpcClient() as never,
+    createFakeDynamicRoleRegistry() as never,
+    workflowSessions,
+    saveWorkflow.fn as never,
+  );
+  const { ctx, notifications } = createFakeCommandContext({ model: fakeModelSupportingMax() });
+
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, "save-workflow Not Valid");
+
+  assert.equal(notifications[2]?.type, "error");
+  assert.match(notifications[2]?.message ?? "", /ungültiger Name/);
+});
+
+test("/rabbit save-workflow after a completed workflow writes a snapshot", async () => {
+  const { api, ctx, notifications, saveWorkflow } = setup();
+  await run(api, ctx, "on");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, "save-workflow audit-1");
+
+  assert.equal(saveWorkflow.calls.length, 1);
+  assert.equal(saveWorkflow.calls[0]?.name, "audit-1");
+  assert.equal(notifications[2]?.type, "info");
+  assert.match(notifications[2]?.message ?? "", /rabbit-workflows/);
+});
+
 test("a second /rabbit workflow call starts a fresh session, not a third revision", async () => {
   const { api, ctx, workflowSessions } = setup();
   await run(api, ctx, "on");
@@ -388,6 +501,7 @@ test("/rabbit verify does not send a message while a turn is running", async () 
     createFakeSubagentRpcClient() as never,
     createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
+    createFakeSaveWorkflowSnapshot().fn as never,
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),

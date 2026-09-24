@@ -2,7 +2,8 @@
 
 ## Aktueller Stand
 
-Dieses Repository befindet sich in **Phase 1–10** (Grundgerüst,
+Dieses Repository befindet sich in **Phase 1–10 + Phase 12 (abgespeckt) +
+Phase 13** (Grundgerüst,
 session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
 erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
 `aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
@@ -33,7 +34,13 @@ deckt die dadurch entstandene, abgespeckte Form von Phase 12 ab: ein
 reiner Komfort-Trigger für das echte `project_check`-Tool über
 `pi.sendUserMessage` (nicht mutationsgekoppelt, da RabbitMode selbst nie
 mutiert — vollständige Begründung in README.md unter "Bewusst
-abgespeckt: Phase 12"). Es gibt noch keinen Writer und kein
+abgespeckt: Phase 12"). `/rabbit save-agent <id>` macht eine noch
+ephemerale `/rabbit define`-Rolle dauerhaft (verschiebt die Datei nach
+`.pi/agents/rabbit-saved/`, kein neues Format); `/rabbit save-workflow
+<name>` schreibt einen reinen JSON-Audit-Snapshot der Workflow-
+Revisionshistorie nach `.pi/rabbit-workflows/` — bewusst ohne
+Lademechanismus (vollständige Begründung in README.md unter "Phase 13:
+Persistenz"). Es gibt noch keinen Writer und kein
 `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
 Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
@@ -75,6 +82,11 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
   aktiven Agenten, der das echte, per `pi.registerTool` registrierte Tool
   selbst aufruft (`src/rabbit/commands.ts`). Konkretisiert "keine
   Verification-Logik duplizieren" für diesen Command.
+- Persistenz nur explizit: `/rabbit save-agent`/`/rabbit save-workflow`
+  sind die einzigen Pfade, über die etwas RabbitMode-Erzeugtes eine
+  Session überlebt. Kein anderer Code-Pfad darf automatisch persistieren.
+  `/rabbit save-workflow` bleibt ein reiner Audit-Snapshot ohne Lade-
+  mechanismus — kein `/rabbit workflow <name>` für gespeicherte Workflows.
 - Bestehende Pi-Shortcuts nicht verändern; einzige neue Bindung ist
   `Super+Alt+R`.
 - `Super+R` und `Shift+Tab` müssen unverändert bleiben.
