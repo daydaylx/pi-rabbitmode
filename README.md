@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–10, 12 (abgespeckt), 13 umgesetzt · Phase 11 bewusst nicht gebaut · Phase 14 zurückgestellt
+## Status: Orchestrator-MVP-Implementierung · Multi-Step-Live-E2E noch offen · Phase 11 bewusst nicht gebaut · Phase 14 zurückgestellt
 
 Diese Version implementiert ausschließlich:
 
@@ -39,23 +39,35 @@ Diese Version implementiert ausschließlich:
   `pi.subagents.agents`-Manifest-Schlüssel)
 - `/rabbit define <json>` — echte Ephemeral-Agent-Erzeugung: der
   Hauptagent kann zur Laufzeit eine **neue** Rolle definieren
-  (`id`/`purpose`/`instructions`/`tools`/`task`), RabbitMode schreibt sie
-  als `.pi/agents/rabbit-dynamic/<id>.md`, spawnt sie sofort und löscht
-  die Datei danach wieder (`src/orchestration/dynamic-role.ts`).
+  (`id`/`purpose`/`instructions`/`tools`/optional `task`), RabbitMode
+  schreibt sie als `.pi/agents/rabbit-dynamic/<id>.md` und kann sie direkt
+  oder in einem Workflow spawnen (`src/orchestration/dynamic-role.ts`).
+  Die Datei bleibt bis `/rabbit off` oder Session-Ende auffindbar; aktiven
+  Child-Runs wird Cleanup nicht vorzeitig entzogen.
   **Tools sind hart auf read-only beschränkt** (`read`, `grep`, `find`,
   `ls` — nie `bash`/`write`/`edit`), maximal 8 dynamische Rollen pro
   Session, Frontmatter-Injection-Schutz für nutzergenerierten Text. Siehe
   „Bewusste Ausnahme" unten.
 - `/rabbit workflow <json>` — deklarativer DAG (`src/orchestration/
   graph.ts`): mehrere Steps mit `dependsOn`, begrenzter Parallelität
-  (Default 3, `docs/spec/01_ARCHITECTURE.md` §7), Zyklus-/Unknown-Dependency-
-  Validierung, transitivem Skip bei fehlgeschlagener Abhängigkeit — genau
-  das Beispiel-Fan-out aus `docs/spec/01_ARCHITECTURE.md` §5
-  (`permission-auditor`/`recovery-auditor`/`architecture-auditor` →
-  Synthese-Step). Steps referenzieren nur bereits installierte Rollen
-  (Baseline oder mitgelieferte Bundled-Rollen) — inline `/rabbit
-  define`-Definitionen innerhalb eines Workflow-Steps sind bewusst noch
-  nicht eingebaut (siehe „Grenze in Phase 8" unten).
+  (Default 3), Zyklus-/Unknown-Dependency-Validierung und transitivem Skip.
+  Abhängige Steps erhalten ausschließlich die explizit deklarierten,
+  erfolgreichen Vorgänger-Ergebnisse, mit UTF-8-Limit und sichtbarer
+  Truncation-Markierung. Ephemere Rollen aus `/rabbit define` können in
+  Workflow-Steps verwendet werden; das Bereinigen einer Rolle wartet, bis
+  alle zugehörigen Child-Runs sie freigegeben haben.
+- Der Main Agent bleibt Supervisor und erhält in aktivem RabbitMode drei
+  Tools: `rabbit_define_role` (session-lokale read-only Spezialistenrolle),
+  `rabbit_workflow` (validierter DAG mit genau einem terminalen
+  Synthese-Step) und `rabbit_replan` (neue Befunde, neue Synthese,
+  append-only, maximal drei Revisionen). Die Systemanweisung empfiehlt
+  einfache Aufgaben selbst zu lösen, vorhandene Rollen vorzuziehen und
+  Child-Ergebnisse samt Unsicherheit ehrlich zusammenzuführen.
+- Für jeden Rabbit-Child wird `provider/model:max` explizit im v1-Spawn
+  angefordert; wenn das Root-Modell `max` nicht unterstützt, wird fail-closed
+  abgebrochen. Ob die installierte `pi-subagents`-Version den Override so
+  interpretiert und tatsächlich `max` verwendet, muss ein echter Runtime-
+  End-to-End-Test belegen (siehe Verifikation unten).
 - `/rabbit replan <json>` — begrenztes Replanning (`docs/spec/
   02_CONTRACTS.md` §8): fügt dem aktuellen Workflow neue Steps als
   numerierte Revision hinzu, verlangt einen konkreten Grund
@@ -92,9 +104,17 @@ Diese Version implementiert ausschließlich:
   delegationsfähiges Tool (`bash`/`subagent`), kann also aktuell ohnehin
   nicht weiter verschachteln.
 
+Ein gemeinsamer Run-Controller (eine Instanz pro Extension-Session) ist die
+Autorität für Run-ID, Revision, Laufphase, aktive Steps und Child-Run-IDs.
+Er publiziert `rabbit:runtime-state`, versorgt Widget und `/rabbit status`,
+und `/rabbit stop` ruft den bestehenden `pi-subagents`-Stop-Kanal auf;
+`/rabbit off` bleibt gesperrt, bis der Run beendet ist. Während eines
+laufenden Spawns bleibt Stop als ausstehend sichtbar und der Child wird nach
+Rückkehr gestoppt.
+
 `/rabbit on` schaltet einen internen Zustand um, erzwingt `max`-Thinking
-und wechselt Theme/Widget — es verändert nie Permission-Level oder
-Workflow-Mode, auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab`
+für den Root Agent und wechselt Theme/Widget — es verändert nie
+Permission-Level oder Workflow-Mode, auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab`
 (Workflow-Menü) bleiben unverändert; RabbitMode registriert ausschließlich
 die neue, bisher unbelegte Bindung `Super+Alt+R`. Jede dynamische Rolle
 (egal ob erfolgreich, fehlgeschlagen oder noch aktiv) wird spätestens beim
@@ -334,13 +354,13 @@ erfolgreich abgeschlossen. Der DAG-Scheduler selbst (Abhängigkeiten,
 Parallelitätsgrenze, Skip-Kaskaden) war davon unabhängig und bereits
 vollständig getestet.
 
-## Architektur (Zielbild, nicht vollständig umgesetzt)
+## Architektur (MVP-Stand)
 
 ```text
 daydaylx/pi              Host / Policy / Permissions / Verification / Aurora
         |
         v
-daydaylx/pi-rabbitmode    Orchestration / Workflow / Dynamic Agents  (dieses Repo)
+daydaylx/pi-rabbitmode    Run-State / Supervisor-Tools / DAG / Dynamic Roles (dieses Repo)
         |
         v
 daydaylx/pi-subagents     Child execution / chains / parallel / nested
@@ -348,9 +368,10 @@ daydaylx/pi-subagents     Child execution / chains / parallel / nested
 
 `daydaylx/pi` bleibt für alle drei Repositories die alleinige Autorität für
 Permissions, Trust, Recovery und Verification. `pi-rabbitmode` besitzt
-ausschließlich Rabbit-Session-State, den `/rabbit`-Command und (später)
-die Orchestrierungslogik — niemals ein eigenes Permission-, Recovery- oder
-Verification-System und niemals eine zweite Subagenten-Execution-Engine.
+Rabbit-Session-State, einen Run-Controller und die deklarative Orchestrierung
+über vorhandene `pi-subagents`-RPCs — niemals ein eigenes Permission-,
+Recovery- oder Verification-System und niemals eine zweite
+Subagenten-Execution-Engine.
 Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUNDARIES.md).
 
 ## Commands
@@ -360,7 +381,7 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit` / `/rabbit toggle` | schaltet zwischen `off` und `active` |
 | `/rabbit on` | aktiviert RabbitMode (No-Op, falls bereits aktiv) |
 | `/rabbit off` | deaktiviert RabbitMode (No-Op, falls bereits aus) |
-| `/rabbit status` | zeigt Mode, `pi-subagents`-Erreichbarkeit und, rein informativ, den zuletzt auf dem Aurora-Bus beobachteten Permission-Level/Workflow-Mode |
+| `/rabbit status` | zeigt Mode, `pi-subagents`-Erreichbarkeit, Rabbit-Run-Phase/aktive Steps und rein informativ beobachtete Aurora-Werte |
 | `/rabbit spawn <rolle> <Aufgabe>` | startet `investigator`\|`debugger`\|`verifier`\|`permission-auditor`\|`recovery-auditor`\|`architecture-auditor` (nur bei aktivem RabbitMode) |
 | `/rabbit define <json>` | definiert und startet eine neue, session-lokale Rolle (read-only, siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit workflow <json>` | führt einen deklarativen DAG aus Steps mit Abhängigkeiten aus (siehe oben; nur bei aktivem RabbitMode) |
@@ -368,10 +389,20 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit verify [profil]` | fordert `project_check` mit dem angegebenen Profil (Default `verify`) beim aktiven Agenten an (siehe „Bewusst abgespeckt: Phase 12" unten; **nicht** an aktives RabbitMode gebunden) |
 | `/rabbit save-agent <id>` | macht eine noch ephemerale `/rabbit define`-Rolle dauerhaft (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit save-workflow <name>` | schreibt einen JSON-Audit-Snapshot des laufenden Workflows (siehe oben; nur bei aktivem RabbitMode) |
-| `/rabbit stop` | meldet noch immer "kein aktiver Rabbit-Run" — Interrupt/Stop für einen laufenden Workflow ist noch nicht angebunden |
+| `/rabbit stop` | stoppt laufende Child-Runs kontrolliert; fehlgeschlagene Stop-Aufrufe werden gemeldet, ein Spawn-Race bleibt als ausstehend markiert |
 
 Der State ist rein session-lokal (In-Memory), wird nirgends persistiert und
 ist nach einem Neustart immer `off`.
+
+## Verifikationsstand
+
+`npm run typecheck` und `npm run test` prüfen die Implementierung lokal.
+`status-adapter.ts` wurde zuvor bereits mit einem echten `pi-subagents`-
+Workflow-Step live verifiziert. Die neue Supervisor-Kette (mehrstufiger
+Fan-out/Fan-in, tatsächlicher Child-MAX-Override und Stop über die aktive
+Runtime) braucht noch einen interaktiven Pi-Test mit bestätigtem
+`rabbit_workflow`-Tool; `--mode json` kann die dafür nötige Extension-Tool-
+Freigabe nicht anzeigen. Bis dahin ist dieser Live-Abnahmepunkt offen.
 
 ## Lokal entwickeln/testen
 
@@ -390,20 +421,13 @@ pi -e /home/g/Projekte/pi-rabbitmode
 (in einem beliebigen Scratch-Projektverzeichnis, nicht im `daydaylx/pi`-
 Arbeitsbaum selbst).
 
-## Roadmap (spätere Phasen, siehe `docs/spec/05_IMPLEMENTATION_PHASES.md`)
+## Grenzen / spätere Arbeit
 
-Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
-öffentlicher Aurora-Motion-Hook existiert) · Phase 6b `subagents:rpc:v2`
-(eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8b
-Status-Polling live verifizieren · inline `/rabbit define` innerhalb
-eines Workflow-Steps · Phase 11 Writer (zurückgestellt, siehe oben) ·
-Phase 12 Verification-Integration vollständig — mutationsgekoppelter
-Teil setzt Phase 11 voraus, `/rabbit verify` deckt die abgespeckte Form
-bereits ab (siehe oben) · Phase 13 Persistenz — `/rabbit save-agent` und
-`/rabbit save-workflow` bereits umgesetzt (siehe oben); ein
-`/rabbit workflow <gespeicherter-name>`-Lademechanismus bleibt bewusst
-offen · Phase 14 Benchmark/Rollout (zurückgestellt, siehe „Bewusst
-zurückgestellt: Phase 14" unten).
+Der MVP bleibt read-only: keine Writer-Agenten, keine Permission-Erhöhung,
+kein `subagents:rpc:v2`, keine automatische Persistenz außer den expliziten
+Save-Commands und kein gespeicherter Workflow-Lademechanismus. Phase 14
+Benchmark/Rollout bleibt eine empirische Messaufgabe mit echten, laufenden
+Pi-Sessions (siehe „Bewusst zurückgestellt: Phase 14" unten).
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 

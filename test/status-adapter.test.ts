@@ -1,15 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { interpretStatusReply, pollStepUntilTerminal } from "../src/orchestration/status-adapter.ts";
+import {
+  interpretStatusReply,
+  pollStepUntilTerminal,
+} from "../src/orchestration/status-adapter.ts";
 
-test("interpretStatusReply treats an RPC-level error as terminal and failed", () => {
+test("interpretStatusReply treats an RPC-level error as an unknown non-terminal state", () => {
   const outcome = interpretStatusReply({
     version: 1,
     requestId: "x",
     success: false,
     error: { code: "not_found", message: "run not found" },
   });
-  assert.deepEqual(outcome, { terminal: true, failed: true, text: "run not found" });
+  assert.deepEqual(outcome, {
+    terminal: false,
+    failed: false,
+    text: "run not found",
+  });
 });
 
 test('interpretStatusReply treats a "Status file not found." RPC error as not yet terminal, not a failure', () => {
@@ -23,26 +30,38 @@ test('interpretStatusReply treats a "Status file not found." RPC error as not ye
     success: false,
     error: { code: "execution_failed", message: "Status file not found." },
   });
-  assert.deepEqual(outcome, { terminal: false, failed: false });
+  assert.deepEqual(outcome, {
+    terminal: false,
+    failed: false,
+    text: "Status file not found.",
+  });
 });
 
-test('interpretStatusReply still treats a different RPC-level error message as terminal and failed (only the exact "Status file not found." text is special-cased)', () => {
+test("interpretStatusReply keeps other RPC errors non-terminal until terminal status is proven", () => {
   const outcome = interpretStatusReply({
     version: 1,
     requestId: "x",
     success: false,
-    error: { code: "execution_failed", message: "Status file not found for some other reason." },
+    error: {
+      code: "execution_failed",
+      message: "Status file not found for some other reason.",
+    },
   });
   assert.deepEqual(outcome, {
-    terminal: true,
-    failed: true,
+    terminal: false,
+    failed: false,
     text: "Status file not found for some other reason.",
   });
 });
 
 test("interpretStatusReply treats an empty/missing results array as not yet terminal", () => {
   assert.deepEqual(
-    interpretStatusReply({ version: 1, requestId: "x", success: true, data: {} }),
+    interpretStatusReply({
+      version: 1,
+      requestId: "x",
+      success: true,
+      data: {},
+    }),
     { terminal: false, failed: false },
   );
   assert.deepEqual(
@@ -117,7 +136,9 @@ test("pollStepUntilTerminal resolves immediately when the first poll is already 
     data: { text: "done", details: { results: [{ exitCode: 0 }] } },
   }));
 
-  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", { sleep: instantSleep });
+  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", {
+    sleep: instantSleep,
+  });
   assert.deepEqual(outcome, { terminal: true, failed: false, text: "done" });
 });
 
@@ -125,7 +146,8 @@ test("pollStepUntilTerminal polls again while the run is still active", async ()
   let calls = 0;
   const rpc = fakeRpc(() => {
     calls += 1;
-    if (calls < 3) return { version: 1, requestId: "x", success: true, data: {} };
+    if (calls < 3)
+      return { version: 1, requestId: "x", success: true, data: {} };
     return {
       version: 1,
       requestId: "x",
@@ -134,9 +156,15 @@ test("pollStepUntilTerminal polls again while the run is still active", async ()
     };
   });
 
-  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", { sleep: instantSleep });
+  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", {
+    sleep: instantSleep,
+  });
   assert.equal(calls, 3);
-  assert.deepEqual(outcome, { terminal: true, failed: false, text: "finished" });
+  assert.deepEqual(outcome, {
+    terminal: true,
+    failed: false,
+    text: "finished",
+  });
 });
 
 test('pollStepUntilTerminal polls past an initial "Status file not found." race instead of failing the step within one poll', async () => {
@@ -162,9 +190,15 @@ test('pollStepUntilTerminal polls past an initial "Status file not found." race 
     };
   });
 
-  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", { sleep: instantSleep });
+  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", {
+    sleep: instantSleep,
+  });
   assert.equal(calls, 2);
-  assert.deepEqual(outcome, { terminal: true, failed: false, text: "real work done" });
+  assert.deepEqual(outcome, {
+    terminal: true,
+    failed: false,
+    text: "real work done",
+  });
 });
 
 test("pollStepUntilTerminal passes {id: runId} as the status params", async () => {
@@ -184,7 +218,12 @@ test("pollStepUntilTerminal passes {id: runId} as the status params", async () =
 });
 
 test("pollStepUntilTerminal gives up after the deadline and reports a failed timeout", async () => {
-  const rpc = fakeRpc(() => ({ version: 1, requestId: "x", success: true, data: {} }));
+  const rpc = fakeRpc(() => ({
+    version: 1,
+    requestId: "x",
+    success: true,
+    data: {},
+  }));
 
   let clock = 0;
   const outcome = await pollStepUntilTerminal(rpc as never, "run-1", {
@@ -193,19 +232,62 @@ test("pollStepUntilTerminal gives up after the deadline and reports a failed tim
     timeoutMs: 3,
   });
 
-  assert.equal(outcome.terminal, true);
+  assert.equal(outcome.terminal, false);
   assert.equal(outcome.failed, true);
+  assert.equal(outcome.timedOut, true);
   assert.match(outcome.text ?? "", /Timeout/);
 });
 
-test("pollStepUntilTerminal treats a thrown RPC call as a terminal failure, not an infinite loop", async () => {
+test("pollStepUntilTerminal waits for terminal status after a stop request", async () => {
+  let calls = 0;
+  const rpc = fakeRpc(() => {
+    calls += 1;
+    return calls === 1
+      ? {
+          version: 1,
+          requestId: "x",
+          success: true,
+          data: { state: "stopping" },
+        }
+      : {
+          version: 1,
+          requestId: "x",
+          success: true,
+          data: { state: "stopped" },
+        };
+  });
+
+  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", {
+    sleep: instantSleep,
+  });
+  assert.deepEqual(outcome, {
+    terminal: true,
+    failed: false,
+    stopped: true,
+    text: undefined,
+  });
+  assert.equal(calls, 2);
+});
+
+test("pollStepUntilTerminal keeps a child unresolved when status RPC calls fail", async () => {
+  let clock = 0;
+  let calls = 0;
   const rpc = {
     call: async () => {
+      calls += 1;
       throw new Error("network exploded");
     },
     ping: async () => ({ version: 1, requestId: "x", success: true, data: {} }),
   };
 
-  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", { sleep: instantSleep });
-  assert.deepEqual(outcome, { terminal: true, failed: true, text: "network exploded" });
+  const outcome = await pollStepUntilTerminal(rpc as never, "run-1", {
+    sleep: instantSleep,
+    timeoutMs: 2,
+    now: () => clock++,
+  });
+  assert.equal(outcome.terminal, false);
+  assert.equal(outcome.failed, true);
+  assert.equal(outcome.timedOut, true);
+  assert.match(outcome.text ?? "", /Terminalstatus.*network exploded/);
+  assert.equal(calls, 2);
 });

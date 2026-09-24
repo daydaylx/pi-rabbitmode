@@ -1,4 +1,5 @@
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import * as path from "node:path";
 
 /**
@@ -45,7 +46,12 @@ import * as path from "node:path";
  * around. Dynamic roles stay read-only-only; see README.md's "Phase 11"
  * section for the full account.
  */
-export const DYNAMIC_ROLE_TOOL_ALLOWLIST = ["read", "grep", "find", "ls"] as const;
+export const DYNAMIC_ROLE_TOOL_ALLOWLIST = [
+  "read",
+  "grep",
+  "find",
+  "ls",
+] as const;
 export type DynamicRoleTool = (typeof DYNAMIC_ROLE_TOOL_ALLOWLIST)[number];
 
 export const DYNAMIC_ROLE_PACKAGE = "rabbit-dynamic";
@@ -101,12 +107,11 @@ export interface DynamicRoleRequest {
   purpose: string;
   instructions: string;
   tools: string[];
-  task: string;
+  task?: string;
 }
 
 export type DynamicRoleValidation =
-  | { ok: true; request: DynamicRoleRequest }
-  | { ok: false; error: string };
+  { ok: true; request: DynamicRoleRequest } | { ok: false; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -128,7 +133,9 @@ function isFrontmatterSafeSingleLine(text: string, maxLength: number): boolean {
   );
 }
 
-export function validateDynamicRoleRequest(raw: unknown): DynamicRoleValidation {
+export function validateDynamicRoleRequest(
+  raw: unknown,
+): DynamicRoleValidation {
   if (!isRecord(raw)) {
     return { ok: false, error: "Rollendefinition muss ein JSON-Objekt sein." };
   }
@@ -137,10 +144,14 @@ export function validateDynamicRoleRequest(raw: unknown): DynamicRoleValidation 
   if (typeof id !== "string" || !ID_PATTERN.test(id)) {
     return {
       ok: false,
-      error: 'id muss klein geschrieben sein und zu ^[a-z][a-z0-9-]{1,40}$ passen (z.B. "api-contract-checker").',
+      error:
+        'id muss klein geschrieben sein und zu ^[a-z][a-z0-9-]{1,40}$ passen (z.B. "api-contract-checker").',
     };
   }
-  if (typeof purpose !== "string" || !isFrontmatterSafeSingleLine(purpose, MAX_PURPOSE_LENGTH)) {
+  if (
+    typeof purpose !== "string" ||
+    !isFrontmatterSafeSingleLine(purpose, MAX_PURPOSE_LENGTH)
+  ) {
     return {
       ok: false,
       error: `purpose muss eine einzeilige Zeichenkette ohne "---" sein (max. ${MAX_PURPOSE_LENGTH} Zeichen).`,
@@ -156,10 +167,15 @@ export function validateDynamicRoleRequest(raw: unknown): DynamicRoleValidation 
       error: `instructions darf nicht leer sein (max. ${MAX_INSTRUCTIONS_LENGTH} Zeichen).`,
     };
   }
-  if (typeof task !== "string" || task.trim().length === 0 || task.length > MAX_TASK_LENGTH) {
+  if (
+    task !== undefined &&
+    (typeof task !== "string" ||
+      task.trim().length === 0 ||
+      task.length > MAX_TASK_LENGTH)
+  ) {
     return {
       ok: false,
-      error: `task darf nicht leer sein (max. ${MAX_TASK_LENGTH} Zeichen).`,
+      error: `task darf nicht leer sein, wenn eine Rolle direkt gestartet werden soll (max. ${MAX_TASK_LENGTH} Zeichen).`,
     };
   }
   if (!Array.isArray(tools) || tools.length === 0) {
@@ -170,7 +186,10 @@ export function validateDynamicRoleRequest(raw: unknown): DynamicRoleValidation 
   }
   const normalizedTools: string[] = [];
   for (const tool of tools) {
-    if (typeof tool !== "string" || !(DYNAMIC_ROLE_TOOL_ALLOWLIST as readonly string[]).includes(tool)) {
+    if (
+      typeof tool !== "string" ||
+      !(DYNAMIC_ROLE_TOOL_ALLOWLIST as readonly string[]).includes(tool)
+    ) {
       return {
         ok: false,
         error: `Tool "${String(tool)}" ist nicht erlaubt. Dynamische Rollen dürfen nur [${DYNAMIC_ROLE_TOOL_ALLOWLIST.join(", ")}] nutzen — kein bash/write/edit.`,
@@ -181,12 +200,20 @@ export function validateDynamicRoleRequest(raw: unknown): DynamicRoleValidation 
 
   return {
     ok: true,
-    request: { id, purpose, instructions: instructions.trim(), tools: normalizedTools, task: task.trim() },
+    request: {
+      id,
+      purpose,
+      instructions: instructions.trim(),
+      tools: normalizedTools,
+      ...(typeof task === "string" ? { task: task.trim() } : {}),
+    },
   };
 }
 
 /** Parses and validates the JSON argument to `/rabbit define`. */
-export function parseDynamicRoleRequest(rawJson: string): DynamicRoleValidation {
+export function parseDynamicRoleRequest(
+  rawJson: string,
+): DynamicRoleValidation {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawJson);
@@ -194,7 +221,7 @@ export function parseDynamicRoleRequest(rawJson: string): DynamicRoleValidation 
     return {
       ok: false,
       error:
-        'Ungültiges JSON. Erwartet: {"id":"...","purpose":"...","instructions":"...","tools":["read"],"task":"..."}',
+        'Ungültiges JSON. Erwartet: {"id":"...","purpose":"...","instructions":"...","tools":["read"],"task":"..."} (task optional für reine Workflow-Rollendefinition)',
     };
   }
   return validateDynamicRoleRequest(parsed);
@@ -223,18 +250,76 @@ export interface WrittenDynamicRole {
   id: string;
   runtimeName: string;
   filePath: string;
+  projectRoot: string;
+}
+
+async function ensureSafeDirectory(
+  root: string,
+  segments: string[],
+): Promise<string> {
+  let current = root;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    try {
+      const stat = await lstat(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error(
+          `Unsicheres Rollenverzeichnis (Symlink oder kein Verzeichnis): ${current}`,
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      try {
+        await mkdir(current, { mode: 0o700 });
+      } catch (mkdirError) {
+        if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST")
+          throw mkdirError;
+      }
+      const stat = await lstat(current);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error(
+          `Unsicheres Rollenverzeichnis (Symlink oder kein Verzeichnis): ${current}`,
+        );
+      }
+    }
+    if ((await realpath(current)) !== current) {
+      throw new Error(`Rollenverzeichnis verlässt den Projektpfad: ${current}`);
+    }
+  }
+  return current;
+}
+
+async function assertSafeRoleFile(role: WrittenDynamicRole): Promise<void> {
+  await ensureSafeDirectory(role.projectRoot, [
+    ".pi",
+    "agents",
+    "rabbit-dynamic",
+  ]);
+  const stat = await lstat(role.filePath);
+  if (stat.isSymbolicLink() || !stat.isFile()) {
+    throw new Error(`Unsichere dynamische Rollendatei: ${role.filePath}`);
+  }
 }
 
 export interface DynamicRoleRegistry {
   /** Number of currently-tracked (not yet cleaned up) dynamic roles. */
   size(): number;
+  /** Resolve only an ephemeral role currently owned by this session. */
+  resolveRuntimeName(runtimeName: string): WrittenDynamicRole | undefined;
+  /** Keep the role file discoverable while a child run is using it. */
+  retain(runtimeName: string): boolean;
+  /** Release a child reference and finish any deferred cleanup. */
+  release(runtimeName: string): Promise<void>;
   /**
    * Validates, writes the `.md` file under `<cwd>/.pi/agents/rabbit-dynamic/`,
    * and tracks it for cleanup. Rejects once `MAX_DYNAMIC_ROLES_PER_SESSION`
    * is reached.
    */
-  define(cwd: string, raw: unknown): Promise<
-    | { ok: true; role: WrittenDynamicRole; task: string }
+  define(
+    cwd: string,
+    raw: unknown,
+  ): Promise<
+    | { ok: true; role: WrittenDynamicRole; task?: string }
     | { ok: false; error: string }
   >;
   /** Deletes one role's file (best-effort) and stops tracking it. */
@@ -247,18 +332,22 @@ export interface DynamicRoleRegistry {
    * survives `cleanup`/`cleanupAll`/session end from this point on.
    * `cwd` must match the `cwd` the role was `define()`d with.
    */
-  save(id: string, cwd: string): Promise<
-    | { ok: true; filePath: string }
-    | { ok: false; error: string }
-  >;
+  save(
+    id: string,
+    cwd: string,
+  ): Promise<{ ok: true; filePath: string } | { ok: false; error: string }>;
 }
 
 export function createDynamicRoleRegistry(): DynamicRoleRegistry {
   const written = new Map<string, WrittenDynamicRole>();
+  const references = new Map<string, number>();
+  const cleanupPending = new Set<string>();
+  const reservations = new Set<string>();
 
-  async function removeFile(filePath: string): Promise<void> {
+  async function removeFile(role: WrittenDynamicRole): Promise<void> {
     try {
-      await rm(filePath, { force: true });
+      await assertSafeRoleFile(role);
+      await rm(role.filePath, { force: true });
     } catch {
       // Best-effort: a session_shutdown cleanup racing a manual one, or a
       // file already gone, is not an error worth surfacing.
@@ -268,8 +357,34 @@ export function createDynamicRoleRegistry(): DynamicRoleRegistry {
   return {
     size: () => written.size,
 
+    resolveRuntimeName(runtimeName) {
+      return [...written.values()].find(
+        (role) => role.runtimeName === runtimeName,
+      );
+    },
+
+    retain(runtimeName) {
+      const role = this.resolveRuntimeName(runtimeName);
+      if (!role || cleanupPending.has(role.id)) return false;
+      references.set(role.id, (references.get(role.id) ?? 0) + 1);
+      return true;
+    },
+
+    async release(runtimeName) {
+      const role = this.resolveRuntimeName(runtimeName);
+      if (!role) return;
+      const remaining = Math.max(0, (references.get(role.id) ?? 0) - 1);
+      if (remaining === 0) references.delete(role.id);
+      else references.set(role.id, remaining);
+      if (remaining === 0 && cleanupPending.has(role.id)) {
+        cleanupPending.delete(role.id);
+        written.delete(role.id);
+        await removeFile(role);
+      }
+    },
+
     async define(cwd, raw) {
-      if (written.size >= MAX_DYNAMIC_ROLES_PER_SESSION) {
+      if (written.size + reservations.size >= MAX_DYNAMIC_ROLES_PER_SESSION) {
         return {
           ok: false,
           error: `Limit erreicht: maximal ${MAX_DYNAMIC_ROLES_PER_SESSION} dynamische Rollen pro Session.`,
@@ -279,35 +394,81 @@ export function createDynamicRoleRegistry(): DynamicRoleRegistry {
       if (!validation.ok) return validation;
       const { request } = validation;
 
-      if (written.has(request.id)) {
-        return { ok: false, error: `Rolle "${request.id}" existiert in dieser Session bereits.` };
+      if (written.has(request.id) || reservations.has(request.id)) {
+        return {
+          ok: false,
+          error: `Rolle "${request.id}" existiert in dieser Session bereits.`,
+        };
       }
+      // Reserve synchronously, before the first await, to serialize duplicate
+      // IDs and enforce the session cap under concurrent tool calls.
+      reservations.add(request.id);
+      try {
+        const projectRoot = await realpath(cwd);
+        const dir = await ensureSafeDirectory(projectRoot, [
+          ".pi",
+          "agents",
+          "rabbit-dynamic",
+        ]);
+        const filePath = path.join(dir, `${request.id}.md`);
+        const handle = await open(
+          filePath,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            constants.O_NOFOLLOW,
+          0o600,
+        );
+        try {
+          await handle.writeFile(buildRoleFileContent(request), "utf8");
+        } finally {
+          await handle.close();
+        }
 
-      const dir = path.join(cwd, ".pi", "agents", "rabbit-dynamic");
-      const filePath = path.join(dir, `${request.id}.md`);
-      await mkdir(dir, { recursive: true });
-      await writeFile(filePath, buildRoleFileContent(request), "utf8");
-
-      const role: WrittenDynamicRole = {
-        id: request.id,
-        runtimeName: dynamicRoleRuntimeName(request.id),
-        filePath,
-      };
-      written.set(request.id, role);
-      return { ok: true, role, task: request.task };
+        const role: WrittenDynamicRole = {
+          id: request.id,
+          runtimeName: dynamicRoleRuntimeName(request.id),
+          filePath,
+          projectRoot,
+        };
+        written.set(request.id, role);
+        return {
+          ok: true,
+          role,
+          ...(request.task !== undefined ? { task: request.task } : {}),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      } finally {
+        reservations.delete(request.id);
+      }
     },
 
     async cleanup(id) {
       const role = written.get(id);
       if (!role) return;
+      if ((references.get(id) ?? 0) > 0) {
+        cleanupPending.add(id);
+        return;
+      }
       written.delete(id);
-      await removeFile(role.filePath);
+      cleanupPending.delete(id);
+      await removeFile(role);
     },
 
     async cleanupAll() {
       const roles = Array.from(written.values());
-      written.clear();
-      await Promise.all(roles.map((role) => removeFile(role.filePath)));
+      const removable = roles.filter(
+        (role) => (references.get(role.id) ?? 0) === 0,
+      );
+      for (const role of roles) {
+        if ((references.get(role.id) ?? 0) > 0) cleanupPending.add(role.id);
+        else written.delete(role.id);
+      }
+      await Promise.all(removable.map((role) => removeFile(role)));
     },
 
     async save(id, cwd) {
@@ -318,9 +479,27 @@ export function createDynamicRoleRegistry(): DynamicRoleRegistry {
           error: `Keine ephemerale Rolle "${id}" in dieser Session (nie definiert oder schon aufgeräumt/gespeichert).`,
         };
       }
-      const dir = path.join(cwd, ".pi", "agents", DYNAMIC_ROLE_SAVED_DIR);
+      if ((references.get(id) ?? 0) > 0) {
+        return {
+          ok: false,
+          error: `Rolle "${id}" wird gerade von einem Agenten verwendet und kann noch nicht gespeichert werden.`,
+        };
+      }
+      const projectRoot = await realpath(cwd);
+      if (projectRoot !== role.projectRoot) {
+        return {
+          ok: false,
+          error:
+            "Das Zielprojekt stimmt nicht mit dem Projekt der Rollendefinition überein.",
+        };
+      }
+      await assertSafeRoleFile(role);
+      const dir = await ensureSafeDirectory(projectRoot, [
+        ".pi",
+        "agents",
+        DYNAMIC_ROLE_SAVED_DIR,
+      ]);
       const targetPath = path.join(dir, `${id}.md`);
-      await mkdir(dir, { recursive: true });
       await rename(role.filePath, targetPath);
       // Stops tracking only after the move succeeds — a failed rename
       // (e.g. permissions) must leave cleanup responsible for the

@@ -4,6 +4,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createEffortController } from "./effort.ts";
 import { emitRabbitModeChanged } from "./events.ts";
+import {
+  createRabbitRunController,
+  RABBIT_RUNTIME_STATE_EVENT,
+  type RabbitRunController,
+  type RabbitRunSnapshot,
+} from "../orchestration/run-controller.ts";
 import { RABBIT_THEME_NAME, createThemeController } from "./theme.ts";
 import { RABBIT_WIDGET_KEY, updateRabbitWidget } from "./widget.ts";
 
@@ -81,13 +87,11 @@ export interface RabbitStateApi {
    * §A).
    */
   toggle(ctx: ExtensionContext): { changed: boolean; blocked: boolean };
-  /**
-   * Phase-2 stub: RabbitMode does not run any agents yet, so there is
-   * never an active run to protect. Phase 8+ (workflow graph / nested
-   * delegation) replaces this body without changing the signature or any
-   * caller.
-   */
+  /** Authoritative workflow lifecycle query; state.ts does not own run logic. */
   hasActiveRun(): boolean;
+  runtimeSnapshot(): RabbitRunSnapshot;
+  /** Attach the current Pi UI context for event-driven widget refreshes. */
+  bindContext(ctx: ExtensionContext): void;
   /** Bind to `session_start`. */
   reset(): void;
   /**
@@ -100,11 +104,16 @@ export interface RabbitStateApi {
   dispose(ctx?: ExtensionContext): void;
 }
 
-export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
+export function createRabbitState(
+  pi: ExtensionAPI,
+  runController: RabbitRunController = createRabbitRunController(pi),
+): RabbitStateApi {
   let mode: RabbitMode = "off";
   let observedPermissionLevel: string | undefined;
   let observedWorkflowPhase: string | undefined;
   let unsubscribe: (() => void) | undefined;
+  let unsubscribeRuntime: (() => void) | undefined;
+  let lastContext: ExtensionContext | undefined;
   const effort = createEffortController(pi);
   const theme = createThemeController();
 
@@ -126,10 +135,14 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
     mode: () => mode,
     observedPermissionLevel: () => observedPermissionLevel,
     observedWorkflowPhase: () => observedWorkflowPhase,
-
-    hasActiveRun: () => false,
+    runtimeSnapshot: () => runController.snapshot(),
+    hasActiveRun: () => runController.isActive(),
+    bindContext(ctx) {
+      lastContext = ctx;
+    },
 
     activate(ctx) {
+      lastContext = ctx;
       if (mode === "active") {
         ctx.ui.notify("RabbitMode ist bereits aktiv.", "info");
         return { changed: false };
@@ -145,7 +158,7 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
       emitRabbitModeChanged(pi, mode);
       ctx.ui.notify(
         themeResult.switched
-          ? "RabbitMode aktiviert (MAX Thinking erzwungen — Grundgerüst, noch keine Orchestrierung)."
+          ? "RabbitMode aktiviert (MAX Thinking erzwungen)."
           : `RabbitMode aktiviert, aber Theme "${RABBIT_THEME_NAME}" konnte nicht geladen werden (${themeResult.error ?? "unbekannter Fehler"}).`,
         "info",
       );
@@ -165,6 +178,7 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
         return { changed: false, blocked: false };
       }
       mode = "off";
+      lastContext = ctx;
       effort.restore();
       theme.restore(ctx);
       ctx.ui.setWidget(RABBIT_WIDGET_KEY, undefined);
@@ -186,14 +200,22 @@ export function createRabbitState(pi: ExtensionAPI): RabbitStateApi {
       mode = "off";
       observedPermissionLevel = undefined;
       observedWorkflowPhase = undefined;
+      runController.reset();
       effort.reset();
       theme.reset();
       subscribeAuroraPatches();
+      unsubscribeRuntime?.();
+      unsubscribeRuntime = pi.events.on(RABBIT_RUNTIME_STATE_EVENT, () => {
+        if (lastContext) updateRabbitWidget(lastContext, api);
+      });
     },
 
     dispose(ctx) {
       unsubscribe?.();
       unsubscribe = undefined;
+      unsubscribeRuntime?.();
+      unsubscribeRuntime = undefined;
+      lastContext = undefined;
       // `session_shutdown` fires for `reload`/`resume`/`new`/`fork` too, not
       // just `quit` — the process (and this extension instance) keeps
       // running, so a still-forced max level or swapped theme would

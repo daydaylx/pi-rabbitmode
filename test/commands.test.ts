@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { registerRabbitCommand } from "../src/rabbit/commands.ts";
 import { createRabbitState } from "../src/rabbit/state.ts";
 import { createWorkflowSessionHolder } from "../src/orchestration/workflow-session-holder.ts";
+import { createRabbitRunController } from "../src/orchestration/run-controller.ts";
 import {
   createFakeCommandContext,
   createFakeDynamicRoleRegistry,
@@ -15,7 +16,8 @@ import {
 
 function setup() {
   const api = createFakeExtensionApi();
-  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const runController = createRabbitRunController();
+  const state = createRabbitState(api as unknown as ExtensionAPI, runController);
   const rpc = createFakeSubagentRpcClient();
   const dynamicRoles = createFakeDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
@@ -27,11 +29,12 @@ function setup() {
     dynamicRoles as never,
     workflowSessions,
     saveWorkflow.fn as never,
+    runController,
   );
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, ctx, notifications, rpc, dynamicRoles, workflowSessions, saveWorkflow };
+  return { api, state, runController, ctx, notifications, rpc, dynamicRoles, workflowSessions, saveWorkflow };
 }
 
 async function run(
@@ -85,6 +88,13 @@ test("/rabbit status reports the mode without changing it", async () => {
   assert.equal(state.mode(), "off");
   assert.equal(notifications.length, 1);
   assert.match(notifications[0]?.message ?? "", /RabbitMode: off/);
+});
+
+test("/rabbit status reports the authoritative Rabbit run phase", async () => {
+  const { api, runController, ctx, notifications } = setup();
+  runController.setPlanning();
+  await run(api, ctx, "status");
+  assert.match(notifications[0]?.message ?? "", /Rabbit Run: planning/);
 });
 
 test("/rabbit status reports pi-subagents availability via ping", async () => {
@@ -145,13 +155,14 @@ test("/rabbit spawn requires RabbitMode to be active first", async () => {
   assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
 });
 
-test("/rabbit spawn with a baseline role and task spawns via the RPC client", async () => {
-  const { api, ctx, notifications } = setup();
+test("/rabbit spawn with a baseline role and task spawns via the RPC client with explicit child MAX", async () => {
+  const { api, ctx, notifications, rpc } = setup();
   await run(api, ctx, "on");
   await run(api, ctx, "spawn investigator find the login bug");
 
   assert.equal(notifications.length, 2);
   assert.equal(notifications[1]?.type, "info");
+  assert.equal((rpc.spawnCalls[0] as { model?: string }).model, "test/supports-max:max");
 });
 
 test("/rabbit spawn rejects a role outside the baseline set", async () => {

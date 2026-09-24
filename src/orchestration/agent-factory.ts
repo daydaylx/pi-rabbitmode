@@ -100,10 +100,14 @@ async function spawnByAgentName(
   rpc: SubagentRpcClient,
   agentName: string,
   task: string,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; model?: string },
 ): Promise<SpawnRoleResult> {
   try {
-    const reply = await rpc.call("spawn", { agent: agentName, task }, options);
+    const reply = await rpc.call(
+      "spawn",
+      { agent: agentName, task, ...(options?.model ? { model: options.model } : {}) },
+      options,
+    );
     return interpretSpawnReply(reply, `${agentName} gestartet.`);
   } catch (error) {
     return {
@@ -117,7 +121,7 @@ export function spawnBaselineRole(
   rpc: SubagentRpcClient,
   role: BaselineRole,
   task: string,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; model?: string },
 ): Promise<SpawnRoleResult> {
   return spawnByAgentName(rpc, role, task, options);
 }
@@ -126,7 +130,7 @@ export function spawnRabbitBundledRole(
   rpc: SubagentRpcClient,
   role: RabbitBundledRole,
   task: string,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; model?: string },
 ): Promise<SpawnRoleResult> {
   return spawnByAgentName(rpc, rabbitBundledRoleRuntimeName(role), task, options);
 }
@@ -141,14 +145,22 @@ export async function spawnDynamicRole(
   registry: DynamicRoleRegistry,
   cwd: string,
   rawRequestJson: unknown,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; model?: string },
 ): Promise<SpawnRoleResult> {
   const defined = await registry.define(cwd, rawRequestJson);
   if (!defined.ok) return { ok: false, message: defined.error };
   const { role, task } = defined;
+  if (!task) {
+    await registry.cleanup(role.id);
+    return { ok: false, message: `Rolle "${role.id}" braucht für /rabbit define einen task.` };
+  }
 
   try {
-    const reply = await rpc.call("spawn", { agent: role.runtimeName, task }, options);
+    const reply = await rpc.call(
+      "spawn",
+      { agent: role.runtimeName, task, ...(options?.model ? { model: options.model } : {}) },
+      options,
+    );
     const result = interpretSpawnReply(reply, `${role.runtimeName} gestartet.`);
     if (!result.ok) await registry.cleanup(role.id);
     return result;

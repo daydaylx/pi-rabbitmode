@@ -16,7 +16,13 @@ Abhängigkeiten und begrenzter Parallelität, `/rabbit replan` für
 begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen),
 `maxSubagentDepth: 2` auf jeder von `pi-rabbitmode` geschriebenen Rolle
 (reutilisiert `pi-subagents`' eigenen Tiefen-Mechanismus statt einer
-zweiten Engine) — siehe README.md für Sicherheitsgrenzen. Status-Polling
+zweiten Engine), echter Dependency-Ergebnisfluss mit UTF-8-Limit, ein
+session-weiter Run-Controller samt Stop/Race-Tracking und Main-Agent-
+Supervisor-Tools für DAG, Dynamic Roles und begründetes Replanning — siehe
+README.md für Sicherheitsgrenzen. Child-Spawns fordern `provider/model:max`
+explizit an; die tatsächliche MAX-Interpretation der installierten Runtime
+und die neue mehrstufige Supervisor-Kette müssen weiterhin interaktiv live
+verifiziert werden. Status-Polling
 (`src/orchestration/status-adapter.ts`) ist live gegen einen echten
 `pi-subagents`-Lauf verifiziert; ein dabei gefundener Race (`status`-Poll
 unmittelbar nach `spawn` liefert `"Status file not found."`, wurde
@@ -76,16 +82,18 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Keine automatischen YOLO-/Permission-Erhöhungen.
 - Rabbit läuft mit `max`; kein stiller Downgrade.
 - Dynamische Agenten bleiben standardmäßig ephemeral: Rollendateien aus
-  `/rabbit define` werden nach Gebrauch wieder gelöscht (Cleanup bei
-  Erfolg, Fehlschlag und als Fallback bei `session_shutdown`).
+  `/rabbit define` und `rabbit_define_role` bleiben nur während des aktiven
+  RabbitMode-Fensters auffindbar; Cleanup bei Deaktivierung und als awaited
+  Fallback bei `session_shutdown`, ohne aktive Child-Runs vorzeitig zu
+  entkoppeln.
 - Tools dynamisch erzeugter Rollen sind hart auf `read, grep, find, ls`
   begrenzt — kein `bash`/`write`/`edit`, keine Ausnahme.
 - Nested Depth maximal 2: jede von `pi-rabbitmode` geschriebene Rolle
   setzt `maxSubagentDepth: 2` in ihrer Frontmatter (`pi-subagents`' eigener
   Mechanismus, siehe `src/orchestration/dynamic-role.ts`).
-- Root-only dynamic agent creation: nur `/rabbit define` (vom Hauptagenten
-  ausgelöst) erzeugt Rollen; es gibt keinen Pfad, über den ein gespawnter
-  Child selbst neue Rollen anlegt.
+- Root-only dynamic agent creation: nur `/rabbit define` oder das
+  Main-Agent-Tool `rabbit_define_role` erzeugt Rollen; gespawnte Children
+  haben kein entsprechendes Tool und keine Schreib-/Shell-Zugriffe.
 - Kein Writer: dynamisch erzeugte Rollen erhalten dauerhaft keinen
   `write`-/`edit`-/`bash`-Zugriff — Phase 11 wurde geprüft und bewusst
   nicht umgesetzt (siehe "Aktueller Stand" oben und README.md).

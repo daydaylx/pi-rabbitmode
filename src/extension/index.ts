@@ -5,8 +5,10 @@ import { createRabbitState } from "../rabbit/state.ts";
 import { RABBIT_MODE_CHANGED_EVENT, isRabbitModeChangedEvent } from "../rabbit/events.ts";
 import { createDynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
 import { createWorkflowSessionHolder } from "../orchestration/workflow-session-holder.ts";
+import { createRabbitRunController, stopRabbitRun } from "../orchestration/run-controller.ts";
 import { saveWorkflowSnapshot } from "../orchestration/workflow-persistence.ts";
 import { createSubagentRpcClient } from "../runtime/subagents-rpc.ts";
+import { registerRabbitSupervisorTools } from "../orchestration/supervisor-tools.ts";
 
 /**
  * RabbitMode extension entrypoint — Phase 1-10 (session state, /rabbit
@@ -22,11 +24,13 @@ import { createSubagentRpcClient } from "../runtime/subagents-rpc.ts";
  * torn down on `session_shutdown`, not initialized only once at module load.
  */
 export default function rabbitModeExtension(pi: ExtensionAPI): void {
-  const state = createRabbitState(pi);
+  const runController = createRabbitRunController(pi);
+  const state = createRabbitState(pi, runController);
   const rpc = createSubagentRpcClient(pi);
   const dynamicRoles = createDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
-  registerRabbitCommand(pi, state, rpc, dynamicRoles, workflowSessions, saveWorkflowSnapshot);
+  registerRabbitSupervisorTools(pi, { state, rpc, dynamicRoles, workflowSessions, runController });
+  registerRabbitCommand(pi, state, rpc, dynamicRoles, workflowSessions, saveWorkflowSnapshot, runController);
   registerRabbitShortcut(pi, state);
 
   // A dynamic role file must never outlive an active RabbitMode window —
@@ -51,7 +55,24 @@ export default function rabbitModeExtension(pi: ExtensionAPI): void {
     workflowSessions.reset();
   });
 
+  // The regular Pi Main Agent stays the Rabbit supervisor. Rabbit only
+  // adds a per-request orchestration contract and callable runtime tools.
+  pi.on("before_agent_start", (_event, ctx) => {
+    if (state.mode() !== "active") return;
+    state.bindContext(ctx);
+    runController.setPlanning();
+  });
+
+  pi.on("agent_settled", (_event, ctx) => {
+    state.bindContext(ctx);
+    if (runController.snapshot().phase === "planning") runController.reset();
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
+    if (runController.isActive()) {
+      await stopRabbitRun(rpc, runController);
+      await runController.waitForSettled();
+    }
     state.dispose(ctx);
     // Fallback net: the mode-changed listener above only fires on an
     // explicit deactivation. If the session ends while RabbitMode is

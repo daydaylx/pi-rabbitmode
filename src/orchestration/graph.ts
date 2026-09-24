@@ -19,19 +19,28 @@ import { isBaselineRole, isRabbitBundledRole } from "./agent-factory.ts";
 export const MAX_WORKFLOW_STEPS = 12; // docs/spec/01_ARCHITECTURE.md §7
 export const MAX_PARALLEL_AGENTS_DEFAULT = 3; // docs/spec/01_ARCHITECTURE.md §7
 
-export type WorkflowStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+export type WorkflowStepStatus = "pending" | "running" | "completed" | "failed" | "skipped" | "stopped";
+
+export type WorkflowStepKind = "analysis" | "synthesis" | "verification";
 
 export interface WorkflowStepDefinition {
   id: string;
   role: string;
   task: string;
   dependsOn?: string[];
+  /** Supervisor hint for actual runtime-phase reporting; not a permission. */
+  kind?: WorkflowStepKind;
 }
 
 export type GraphValidation = { valid: true } | { valid: false; error: string };
 
-function isSpawnableRole(role: string): boolean {
-  return isBaselineRole(role) || isRabbitBundledRole(role);
+export interface GraphValidationOptions {
+  /** True only for an ephemeral role currently held by this session's registry. */
+  isDynamicRole?: (role: string) => boolean;
+}
+
+function isSpawnableRole(role: string, options?: GraphValidationOptions): boolean {
+  return isBaselineRole(role) || isRabbitBundledRole(role) || options?.isDynamicRole?.(role) === true;
 }
 
 /**
@@ -62,7 +71,10 @@ function hasCycle(steps: readonly WorkflowStepDefinition[]): boolean {
   return visited !== steps.length;
 }
 
-export function validateWorkflowGraph(steps: WorkflowStepDefinition[]): GraphValidation {
+export function validateWorkflowGraph(
+  steps: WorkflowStepDefinition[],
+  options?: GraphValidationOptions,
+): GraphValidation {
   if (!Array.isArray(steps) || steps.length === 0) {
     return { valid: false, error: "Workflow braucht mindestens einen Step." };
   }
@@ -82,8 +94,11 @@ export function validateWorkflowGraph(steps: WorkflowStepDefinition[]): GraphVal
     if (!step.task || typeof step.task !== "string") {
       return { valid: false, error: `Step "${step.id}" braucht eine nicht-leere task.` };
     }
-    if (!step.role || !isSpawnableRole(step.role)) {
+    if (!step.role || !isSpawnableRole(step.role, options)) {
       return { valid: false, error: `Step "${step.id}" hat eine unbekannte Rolle "${step.role}".` };
+    }
+    if (step.kind !== undefined && !["analysis", "synthesis", "verification"].includes(step.kind)) {
+      return { valid: false, error: `Step "${step.id}" hat einen unbekannten Typ "${step.kind}".` };
     }
   }
   for (const step of steps) {
@@ -138,7 +153,7 @@ export function propagateSkips(
     const deps = step.dependsOn ?? [];
     const blocked = deps.some((depId) => {
       const status = statusById.get(depId);
-      return status === "failed" || status === "skipped";
+      return status === "failed" || status === "skipped" || status === "stopped";
     });
     if (blocked) {
       statusById.set(step.id, "skipped");

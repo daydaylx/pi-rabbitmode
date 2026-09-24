@@ -27,12 +27,17 @@ import {
 function installFakeSubagentsServer(api: ReturnType<typeof createFakeExtensionApi>): void {
   api.events.on(SUBAGENT_RPC_REQUEST_EVENT, (raw) => {
     const request = raw as SubagentRpcRequestEnvelope;
+    const data = request.method === "spawn"
+      ? { text: `${JSON.stringify(request.params)} started`, details: { runId: "test-run" } }
+      : request.method === "status"
+        ? { text: "finished", details: { results: [{ exitCode: 0 }] } }
+        : { text: `${JSON.stringify(request.params)} started` };
     api.events.emit(subagentRpcReplyEvent(request.requestId), {
       version: 1,
       requestId: request.requestId,
       method: request.method,
       success: true,
-      data: { text: `${JSON.stringify(request.params)} started` },
+      data,
     });
   });
 }
@@ -116,6 +121,64 @@ test("a dynamic role file is deleted shortly after /rabbit off, not just at sess
     true,
     "role file must be gone shortly after /rabbit off, without waiting for session_shutdown",
   );
+});
+
+test("/rabbit stop cancels the active workflow and then allows /rabbit off", async () => {
+  const api = createFakeExtensionApi();
+  let spawned = false;
+  let stopped = false;
+  let notifySpawned!: () => void;
+  const spawnReady = new Promise<void>((resolve) => { notifySpawned = resolve; });
+  api.events.on(SUBAGENT_RPC_REQUEST_EVENT, (raw) => {
+    const request = raw as SubagentRpcRequestEnvelope;
+    if (request.method === "spawn") {
+      spawned = true;
+      notifySpawned();
+      api.events.emit(subagentRpcReplyEvent(request.requestId), {
+        version: 1,
+        requestId: request.requestId,
+        method: request.method,
+        success: true,
+        data: { text: "child started", details: { runId: "live-child" } },
+      });
+      return;
+    }
+    if (request.method === "stop") stopped = true;
+    const data = request.method === "status" && stopped
+      ? { state: "stopped", text: "child stopped" }
+      : {};
+    api.events.emit(subagentRpcReplyEvent(request.requestId), {
+      version: 1,
+      requestId: request.requestId,
+      method: request.method,
+      success: true,
+      data,
+    });
+  });
+  rabbitModeExtension(api as unknown as ExtensionAPI);
+  await api.fireLifecycleEvent("session_start");
+  const { ctx, notifications } = createFakeCommandContext({ model: fakeModelSupportingMax() });
+  await runCommand(api, ctx as never, "on");
+
+  const workflow = runCommand(
+    api,
+    ctx as never,
+    'workflow {"steps":[{"id":"inspect","role":"investigator","task":"Inspect the task."}]}',
+  );
+  await spawnReady;
+  assert.equal(spawned, true);
+  await runCommand(api, ctx as never, "off");
+  assert.match(notifications[1]?.message ?? "", /erst \/rabbit stop/);
+  assert.equal(notifications[1]?.type, "warning");
+  await runCommand(api, ctx as never, "stop");
+  await workflow;
+
+  assert.equal(stopped, true);
+  assert.match(notifications[2]?.message ?? "", /Stop .*angefordert/);
+  assert.match(notifications[3]?.message ?? "", /Workflow abgebrochen/);
+  assert.match(notifications[3]?.message ?? "", /■ inspect/);
+  await runCommand(api, ctx as never, "off");
+  assert.equal(notifications.at(-1)?.message.includes("deaktiviert"), true);
 });
 
 test("session_shutdown still cleans up a role left behind by a still-active RabbitMode", async () => {

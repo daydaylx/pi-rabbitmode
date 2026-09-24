@@ -68,10 +68,12 @@ export interface FakeExtensionApi {
   readonly events: FakeEventBus;
   readonly commands: Map<string, RegisteredCommand>;
   readonly shortcuts: Map<string, RegisteredShortcut>;
+  readonly tools: Map<string, unknown>;
   readonly thinkingLevelHistory: ThinkingLevel[];
   readonly sentUserMessages: RecordedSendUserMessage[];
   registerCommand(name: string, options: RegisteredCommand): void;
   registerShortcut(shortcut: string, options: RegisteredShortcut): void;
+  registerTool(tool: unknown): void;
   sendUserMessage(
     content: string | unknown[],
     options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
@@ -95,6 +97,7 @@ export function createFakeExtensionApi(
   const events = createFakeEventBus();
   const commands = new Map<string, RegisteredCommand>();
   const shortcuts = new Map<string, RegisteredShortcut>();
+  const tools = new Map<string, unknown>();
   const lifecycleHandlers = new Map<string, LifecycleHandler[]>();
   const thinkingLevelHistory: ThinkingLevel[] = [];
   const sentUserMessages: RecordedSendUserMessage[] = [];
@@ -104,6 +107,7 @@ export function createFakeExtensionApi(
     events,
     commands,
     shortcuts,
+    tools,
     thinkingLevelHistory,
     sentUserMessages,
     registerCommand(name, options) {
@@ -111,6 +115,11 @@ export function createFakeExtensionApi(
     },
     registerShortcut(shortcut, options) {
       shortcuts.set(shortcut, options);
+    },
+    registerTool(tool) {
+      if (typeof tool === "object" && tool !== null && "name" in tool) {
+        tools.set(String((tool as { name: unknown }).name), tool);
+      }
     },
     sendUserMessage(content, options) {
       sentUserMessages.push({ content, options });
@@ -142,7 +151,8 @@ export function createFakeExtensionApi(
  */
 export function fakeModelSupportingMax(id = "test/supports-max") {
   return {
-    id,
+    id: id.split("/").at(-1) ?? id,
+    provider: id.includes("/") ? id.split("/")[0] : "test",
     reasoning: true,
     thinkingLevelMap: { max: "max", xhigh: "xhigh" },
   };
@@ -150,14 +160,15 @@ export function fakeModelSupportingMax(id = "test/supports-max") {
 
 export function fakeModelWithoutMax(id = "test/no-max") {
   return {
-    id,
+    id: id.split("/").at(-1) ?? id,
+    provider: id.includes("/") ? id.split("/")[0] : "test",
     reasoning: true,
     thinkingLevelMap: { high: "high" },
   };
 }
 
 export function fakeModelWithoutReasoning(id = "test/no-reasoning") {
-  return { id, reasoning: false };
+  return { id: id.split("/").at(-1) ?? id, provider: id.includes("/") ? id.split("/")[0] : "test", reasoning: false };
 }
 
 /**
@@ -177,10 +188,26 @@ export function createFakeDynamicRoleRegistry(options?: {
   const defineCalls: { cwd: string; raw: unknown }[] = [];
   const cleanupCalls: string[] = [];
   const saveCalls: { id: string; cwd: string }[] = [];
+  const roles = new Map<string, { id: string; runtimeName: string; filePath: string }>();
+  const references = new Map<string, number>();
   let cleanupAllCalls = 0;
 
   return {
-    size: () => 0,
+    size: () => roles.size,
+    resolveRuntimeName: (runtimeName: string) => [...roles.values()].find((role) => role.runtimeName === runtimeName),
+    retain: (runtimeName: string) => {
+      const role = [...roles.values()].find((entry) => entry.runtimeName === runtimeName);
+      if (!role) return false;
+      references.set(role.id, (references.get(role.id) ?? 0) + 1);
+      return true;
+    },
+    release: async (runtimeName: string) => {
+      const role = [...roles.values()].find((entry) => entry.runtimeName === runtimeName);
+      if (!role) return;
+      const count = Math.max(0, (references.get(role.id) ?? 0) - 1);
+      if (count === 0) references.delete(role.id);
+      else references.set(role.id, count);
+    },
     defineCalls,
     cleanupCalls,
     saveCalls,
@@ -192,23 +219,29 @@ export function createFakeDynamicRoleRegistry(options?: {
       }
       const id = typeof raw === "object" && raw !== null && "id" in raw ? String((raw as { id: unknown }).id) : "fake-id";
       const task = typeof raw === "object" && raw !== null && "task" in raw ? String((raw as { task: unknown }).task) : "";
+      const role = { id, runtimeName: `rabbit-dynamic.${id}`, filePath: `/fake/.pi/agents/rabbit-dynamic/${id}.md` };
+      roles.set(id, role);
       return {
         ok: true as const,
-        role: { id, runtimeName: `rabbit-dynamic.${id}`, filePath: `/fake/.pi/agents/rabbit-dynamic/${id}.md` },
-        task,
+        role,
+        ...(task ? { task } : {}),
       };
     },
     cleanup: async (id: string) => {
       cleanupCalls.push(id);
+      roles.delete(id);
     },
     cleanupAll: async () => {
       cleanupAllCalls += 1;
+      roles.clear();
+      references.clear();
     },
     save: async (id: string, cwd: string) => {
       saveCalls.push({ id, cwd });
       if (saveBehavior === "error") {
         return { ok: false as const, error: options?.saveError ?? "fake save error" };
       }
+      roles.delete(id);
       return { ok: true as const, filePath: `/fake/.pi/agents/rabbit-saved/${id}.md` };
     },
   };
@@ -226,11 +259,13 @@ export function createFakeSubagentRpcClient(options?: {
   spawnBehavior?: "success" | "error" | "timeout";
   spawnText?: string;
   statusBehavior?: "completed" | "failed";
+  stopBehavior?: "success" | "error";
 }) {
   const behavior = options?.pingBehavior ?? "success";
   const version = options?.pingVersion ?? 1;
   const spawnBehavior = options?.spawnBehavior ?? "success";
   const statusBehavior = options?.statusBehavior ?? "completed";
+  const stopBehavior = options?.stopBehavior ?? "success";
   let pingCalls = 0;
   const spawnCalls: unknown[] = [];
 
@@ -284,7 +319,7 @@ export function createFakeSubagentRpcClient(options?: {
       success: true,
       data: {
         text: options?.spawnText ?? "fake spawn started.",
-        details: { runId: "fake-run" },
+        details: { runId: `fake-run-${spawnCalls.length}` },
       },
     };
   }
@@ -308,6 +343,12 @@ export function createFakeSubagentRpcClient(options?: {
       if (method === "ping") return ping();
       if (method === "spawn") return spawn(params);
       if (method === "status") return status();
+      if (method === "stop" || method === "interrupt") {
+        if (method === "stop" && stopBehavior === "error") {
+          return { version: 1, requestId: "fake", success: false, error: { code: "execution_failed", message: "fake stop error" } };
+        }
+        return { version: 1, requestId: "fake", success: true, data: {} };
+      }
       throw new Error(`fake subagents RPC client: unsupported method "${method}" in test`);
     },
     ping,
@@ -358,6 +399,7 @@ export interface FakeCommandContextUi {
 export interface FakeCommandContext {
   ui: FakeCommandContextUi;
   model?: unknown;
+  cwd: string;
   isIdle(): boolean;
   hasUI: boolean;
 }
@@ -387,6 +429,7 @@ export function createFakeCommandContext(options?: {
 
   const ctx: FakeCommandContext = {
     model: options?.model,
+    cwd: "/fake/project",
     isIdle: () => options?.idle ?? true,
     hasUI: options?.hasUI ?? true,
     ui: {

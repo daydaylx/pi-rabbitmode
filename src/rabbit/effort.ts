@@ -49,6 +49,22 @@ export function checkMaxThinkingSupported(
   return { supported: true };
 }
 
+/** Build an explicit child model override; suffix-driven MAX is supported by the public spawn `model` field. */
+export function rabbitMaxChildModel(
+  ctx: Pick<ExtensionContext, "model">,
+): { supported: true; model: string } | { supported: false; reason: string } {
+  const check = checkMaxThinkingSupported(ctx);
+  if (!check.supported) return check;
+  const model = ctx.model as (typeof ctx.model & { provider?: string }) | undefined;
+  if (!model || typeof model.provider !== "string" || model.provider.length === 0) {
+    return {
+      supported: false,
+      reason: "RABBIT_MODEL_INCOMPATIBLE: Modellanbieter nicht verfügbar, requiredThinking: max",
+    };
+  }
+  return { supported: true, model: `${model.provider}/${model.id}:max` };
+}
+
 export interface RabbitEffortController {
   /**
    * Checks model capability and, only if it supports `max`, remembers the

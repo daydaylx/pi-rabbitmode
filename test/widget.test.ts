@@ -6,11 +6,17 @@ import {
   updateRabbitWidget,
 } from "../src/rabbit/widget.ts";
 import { createFakeCommandContext } from "./support/fakes.ts";
+import type { RabbitRunSnapshot } from "../src/orchestration/run-controller.ts";
 
-function fakeState(mode: "off" | "active", workflowPhase?: string) {
+function fakeState(mode: "off" | "active", workflowPhase?: string, phase: RabbitRunSnapshot["phase"] = "idle") {
   return {
     mode: () => mode,
     observedWorkflowPhase: () => workflowPhase,
+    runtimeSnapshot: () => ({
+      phase,
+      activeStepRunIds: [],
+      activeSteps: [],
+    }),
   };
 }
 
@@ -23,9 +29,14 @@ test("renders a single RABBIT/MAX line while active", () => {
   assert.deepEqual(lines, ["◆ RABBIT · MAX"]);
 });
 
-test("includes the observed workflow phase when known", () => {
+test("includes the observed workflow phase when known and no Rabbit run is active", () => {
   const lines = renderRabbitWidgetLines(fakeState("active", "work"));
   assert.deepEqual(lines, ["◆ RABBIT · MAX · work"]);
+});
+
+test("renders a real Rabbit runtime phase instead of an unrelated observed phase", () => {
+  const lines = renderRabbitWidgetLines(fakeState("active", "plan", "branching"));
+  assert.deepEqual(lines, ["◆ RABBIT · MAX · BRANCHING"]);
 });
 
 test("updateRabbitWidget sets the widget under the rabbit key", () => {

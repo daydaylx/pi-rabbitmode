@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createRabbitState } from "../src/rabbit/state.ts";
+import { createRabbitRunController } from "../src/orchestration/run-controller.ts";
 import {
   createFakeCommandContext,
   createFakeExtensionApi,
@@ -11,13 +12,14 @@ import {
 
 function setup() {
   const api = createFakeExtensionApi();
-  const state = createRabbitState(api as unknown as ExtensionAPI);
+  const runController = createRabbitRunController();
+  const state = createRabbitState(api as unknown as ExtensionAPI, runController);
   // Model supports max by default so existing activate/deactivate tests
   // aren't about capability checking — that has its own tests below.
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, ctx, notifications };
+  return { api, state, runController, ctx, notifications };
 }
 
 test("starts off", () => {
@@ -81,10 +83,14 @@ test("toggle flips off -> active -> off via the same path as activate/deactivate
   );
 });
 
-test("hasActiveRun is always false in Phase 1-2 (documented stub)", () => {
-  const { state, ctx } = setup();
-  assert.equal(state.hasActiveRun(), false);
+test("hasActiveRun delegates to the authoritative run controller and blocks /rabbit off", () => {
+  const { state, runController, ctx } = setup();
   state.activate(ctx as never);
+  assert.equal(state.hasActiveRun(), false);
+  runController.beginRevision(1);
+  assert.equal(state.hasActiveRun(), true);
+  assert.deepEqual(state.deactivate(ctx as never), { changed: false, blocked: true });
+  runController.finish("cancelled");
   assert.equal(state.hasActiveRun(), false);
 });
 
