@@ -15,8 +15,21 @@ begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen),
 `maxSubagentDepth: 2` auf jeder von `pi-rabbitmode` geschriebenen Rolle
 (reutilisiert `pi-subagents`' eigenen Tiefen-Mechanismus statt einer
 zweiten Engine) — siehe README.md für Sicherheitsgrenzen und die noch
-unverifizierte Status-Polling-Annahme). Es gibt noch keinen Writer und
-kein `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
+unverifizierte Status-Polling-Annahme. Dynamische Rollendateien sind
+strikt an ein aktives RabbitMode-Fenster gebunden: der `rabbit:mode-
+changed`-Listener in `src/extension/index.ts` räumt bei jeder
+Deaktivierung (`/rabbit off`, Toggle, Shortcut) auf, `session_shutdown`
+bleibt als awaited Fallback, falls die Session bei noch aktivem
+RabbitMode endet — siehe `test/extension.test.ts`. Phase 11 (Writer)
+wurde geprüft und bewusst **nicht** gebaut (drei Gründe, vollständig in
+README.md unter "Bewusst nicht gebaut: Phase 11"): kein
+wiederverwendbarer `writeScope`-Mechanismus in `pi-subagents`, Konflikt
+mit ADR 011, und zuletzt ein Block durch die Sicherheitsschicht der
+Ausführungsumgebung selbst beim Versuch, dynamischen Rollen
+Schreibzugriff zu geben ("Create Unsafe Agents") — das gilt als harte
+Plattformgrenze, nicht als Präferenz, die man umgehen könnte. Dynamische
+Rollen bleiben deshalb dauerhaft read-only-only. Es gibt noch keinen
+Writer und kein `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
 Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
@@ -49,7 +62,9 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Root-only dynamic agent creation: nur `/rabbit define` (vom Hauptagenten
   ausgelöst) erzeugt Rollen; es gibt keinen Pfad, über den ein gespawnter
   Child selbst neue Rollen anlegt.
-- Writer concurrency initial 1. (ab Phase 11)
+- Kein Writer: dynamisch erzeugte Rollen erhalten dauerhaft keinen
+  `write`-/`edit`-/`bash`-Zugriff — Phase 11 wurde geprüft und bewusst
+  nicht umgesetzt (siehe "Aktueller Stand" oben und README.md).
 - Bestehende Pi-Shortcuts nicht verändern; einzige neue Bindung ist
   `Super+Alt+R`.
 - `Super+R` und `Shift+Tab` müssen unverändert bleiben.

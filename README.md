@@ -74,12 +74,46 @@ Diese Version implementiert ausschließlich:
   delegationsfähiges Tool (`bash`/`subagent`), kann also aktuell ohnehin
   nicht weiter verschachteln.
 
-**Es gibt noch keinen Writer.** `/rabbit on` schaltet
-einen internen Zustand um, erzwingt `max`-Thinking und wechselt
-Theme/Widget — es verändert nie Permission-Level oder Workflow-Mode, auch
-nicht indirekt. `Super+R` (Resume) und `Shift+Tab` (Workflow-Menü) bleiben
-unverändert; RabbitMode registriert ausschließlich die neue, bisher
-unbelegte Bindung `Super+Alt+R`.
+`/rabbit on` schaltet einen internen Zustand um, erzwingt `max`-Thinking
+und wechselt Theme/Widget — es verändert nie Permission-Level oder
+Workflow-Mode, auch nicht indirekt. `Super+R` (Resume) und `Shift+Tab`
+(Workflow-Menü) bleiben unverändert; RabbitMode registriert ausschließlich
+die neue, bisher unbelegte Bindung `Super+Alt+R`. Jede dynamische Rolle
+(egal ob erfolgreich, fehlgeschlagen oder noch aktiv) wird spätestens beim
+Ausschalten von RabbitMode entfernt — nicht erst bei Session-Ende: ein
+Listener auf das interne `rabbit:mode-changed`-Event deckt `/rabbit off`,
+`/rabbit toggle` und den `Super+Alt+R`-Shortcut an einer Stelle ab, ein
+zweiter Pfad in `session_shutdown` fängt den Fall auf, dass die Session
+endet während RabbitMode noch aktiv ist.
+
+### Bewusst nicht gebaut: Phase 11 (Writer)
+
+`docs/spec/02_CONTRACTS.md` §7 verlangt mutierende dynamische Agenten mit
+`writeScope`. Das wurde geprüft und **bewusst nicht umgesetzt**:
+
+1. `pi-subagents` hat keinen bestehenden `writeScope`-Mechanismus (0
+   Treffer im Quellcode) — eine echte, technisch durchgesetzte
+   Pfad-Sandbox hätte entweder eine `pi-subagents`-Änderung gebraucht
+   (außerhalb dieser Runde) oder eine eigene Permission-artige Prüfung in
+   `pi-rabbitmode`, was gegen "keine Permission-Logik duplizieren"
+   verstößt. `pi-rabbitmode` hat zudem keine Sicht auf einzelne Tool-Calls
+   eines bereits gespawnten Kindprozesses — `writeScope` wäre technisch
+   nur eine im Prompt eingebettete, nicht durchgesetzte Deklaration
+   gewesen.
+2. Ein schreibfähiger, automatisch erzeugter und sofort gestarteter
+   Agent widerspricht direkt `docs/decisions/
+   011-investigator-debugger-verifier.md` in `daydaylx/pi` ("Hauptagent
+   bleibt alleiniger regulärer Patch-Eigentümer... ohne einen zweiten
+   schreibenden Agenten") — eine bewusste, dokumentierte
+   Architekturentscheidung dieses Projekts.
+3. Beim Versuch, `edit`/`write` für dynamische Rollen freizuschalten, hat
+   der Sicherheits-Klassifizierer der ausführenden Umgebung selbst die
+   Aktion mit der Begründung „Create Unsafe Agents" blockiert. Das wird
+   als harte Plattformgrenze behandelt, nicht als Hindernis zum Umgehen.
+
+Dynamische Rollen bleiben deshalb read-only-only (`read`, `grep`, `find`,
+`ls`) — siehe `docs/spec/01_ARCHITECTURE.md` §7 zu `writeScope`-Beispielen
+für eine spätere, sorgfältiger geprüfte Runde, falls gewünscht.
 
 ### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
 
@@ -231,9 +265,9 @@ Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
 öffentlicher Aurora-Motion-Hook existiert) · Phase 6b `subagents:rpc:v2`
 (eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8b
 Status-Polling live verifizieren · inline `/rabbit define` innerhalb
-eines Workflow-Steps · Phase 11 Writer · Phase 12
-Verification-Integration · Phase 13 Persistenz (explizit) · Phase 14
-Benchmark.
+eines Workflow-Steps · Phase 11 Writer (zurückgestellt, siehe oben) ·
+Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·
+Phase 14 Benchmark.
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 

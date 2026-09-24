@@ -67,7 +67,14 @@ export interface FakeExtensionApi {
   registerCommand(name: string, options: RegisteredCommand): void;
   registerShortcut(shortcut: string, options: RegisteredShortcut): void;
   on(event: string, handler: LifecycleHandler): void;
-  fireLifecycleEvent(event: string): Promise<void>;
+  /**
+   * `ctx` defaults to `undefined`, matching real lifecycle events like
+   * `session_shutdown` whose handler treats a missing/best-effort
+   * context as optional (`ExtensionContext | undefined`) rather than an
+   * empty object — `{}` would crash a handler that reaches for
+   * `ctx.ui.*` without checking first.
+   */
+  fireLifecycleEvent(event: string, ctx?: unknown): Promise<void>;
   getThinkingLevel(): ThinkingLevel;
   setThinkingLevel(level: ThinkingLevel): void;
 }
@@ -98,9 +105,9 @@ export function createFakeExtensionApi(
       list.push(handler);
       lifecycleHandlers.set(event, list);
     },
-    async fireLifecycleEvent(event) {
+    async fireLifecycleEvent(event, ctx) {
       for (const handler of lifecycleHandlers.get(event) ?? []) {
-        await handler({ type: event }, {});
+        await handler({ type: event }, ctx);
       }
     },
     getThinkingLevel() {

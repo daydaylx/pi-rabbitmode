@@ -27,13 +27,23 @@ import * as path from "node:path";
  *     can ever reach a dynamically fabricated role in this version.
  *   - every free-text field that lands in the frontmatter block is
  *     validated against injection into that block (see
- *     `assertFrontmatterSafe`) — a hostile or malformed `purpose` cannot
- *     smuggle extra frontmatter keys past the parser
+ *     `isFrontmatterSafeSingleLine`) — a hostile or malformed `purpose`
+ *     cannot smuggle extra frontmatter keys past the parser
  *     (`~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/agents/
  *     frontmatter.ts`: the block ends at the first `\n---`).
  *   - at most `MAX_DYNAMIC_ROLES_PER_SESSION` role files may exist at
  *     once (`docs/spec/01_ARCHITECTURE.md` §7: "dynamische Agenten pro
  *     Rabbit-Run: 8").
+ *
+ * Phase 11 (Write Contract) was evaluated and deliberately NOT built:
+ * giving an auto-generated, auto-spawned ephemeral role `edit`/`write`
+ * access — with no technical way to sandbox it to a declared scope, since
+ * neither `pi-subagents` nor `pi-rabbitmode` can gate a spawned child
+ * process's individual tool calls — was rejected by the harness's own
+ * safety layer when attempted in this session ("Create Unsafe Agents").
+ * That is treated as a hard platform boundary, not a preference to route
+ * around. Dynamic roles stay read-only-only; see README.md's "Phase 11"
+ * section for the full account.
  */
 export const DYNAMIC_ROLE_TOOL_ALLOWLIST = ["read", "grep", "find", "ls"] as const;
 export type DynamicRoleTool = (typeof DYNAMIC_ROLE_TOOL_ALLOWLIST)[number];
