@@ -214,6 +214,26 @@ export interface RabbitLimits {
 export const RABBIT_LIMIT_DEFAULTS: RabbitLimits = { maxSteps: 12, maxParallel: 3, maxDepth: 2 };
 export const RABBIT_LIMIT_CEILINGS: RabbitLimits = { maxSteps: 24, maxParallel: 5, maxDepth: 3 };
 
+/**
+ * Rabbit reads its limits from the environment at call time
+ * (`PI_RABBIT_MAX_STEPS`, `PI_RABBIT_MAX_PARALLEL`, `PI_RABBIT_MAX_DEPTH`).
+ * Invalid or missing values fall back to the defaults; valid values are capped
+ * by the hard ceilings in `resolveRabbitLimits`.
+ */
+export function rabbitLimitsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): RabbitLimits {
+  const read = (name: string): number | undefined => {
+    const raw = env[name]?.trim();
+    return raw && /^\d+$/.test(raw) ? Number(raw) : undefined;
+  };
+  return resolveRabbitLimits({
+    maxSteps: read("PI_RABBIT_MAX_STEPS"),
+    maxParallel: read("PI_RABBIT_MAX_PARALLEL"),
+    maxDepth: read("PI_RABBIT_MAX_DEPTH"),
+  });
+}
+
 export function resolveRabbitLimits(raw?: Partial<Record<keyof RabbitLimits, unknown>>): RabbitLimits {
   const pick = (key: keyof RabbitLimits): number => {
     const value = raw?.[key];

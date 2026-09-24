@@ -1,5 +1,5 @@
 import type { DynamicRoleRegistry } from "./dynamic-role.ts";
-import { spawnTemporaryAgent, TEMPORARY_ROLE } from "./temporary-agent.ts";
+import { rabbitLimitsFromEnv, spawnTemporaryAgent, TEMPORARY_ROLE } from "./temporary-agent.ts";
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
 import {
   isBaselineRole,
@@ -8,7 +8,6 @@ import {
   spawnRabbitBundledRole,
 } from "./agent-factory.ts";
 import {
-  MAX_PARALLEL_AGENTS_DEFAULT,
   propagateSkips,
   selectReadySteps,
   validateWorkflowGraph,
@@ -178,7 +177,7 @@ export async function runWorkflow(
     };
   }
 
-  const maxParallel = options?.maxParallel ?? MAX_PARALLEL_AGENTS_DEFAULT;
+  const maxParallel = options?.maxParallel ?? rabbitLimitsFromEnv().maxParallel;
   const statusById = new Map<string, WorkflowStepStatus>(
     steps.map((step) => [step.id, "pending"]),
   );

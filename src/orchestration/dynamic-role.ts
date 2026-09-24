@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { rabbitLimitsFromEnv } from "./temporary-agent.ts";
 import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import * as path from "node:path";
 
@@ -241,7 +242,7 @@ function buildRoleFileContent(request: DynamicRoleRequest): string {
     `inheritProjectContext: true`,
     `inheritSkills: false`,
     `timeoutMs: 600000`,
-    `maxSubagentDepth: ${RABBIT_MAX_SUBAGENT_DEPTH}`,
+    `maxSubagentDepth: ${rabbitLimitsFromEnv().maxDepth}`,
   ].join("\n");
   return `---\n${frontmatter}\n---\n\n${request.instructions}\n`;
 }

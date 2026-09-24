@@ -88,3 +88,99 @@ test("limits fall back to defaults for invalid values and are capped by hard cei
   assert.deepEqual(resolveRabbitLimits({ maxParallel: 999, maxSteps: 999, maxDepth: 999 }), RABBIT_LIMIT_CEILINGS);
   assert.equal(resolveRabbitLimits({ maxParallel: 4 }).maxParallel, 4);
 });
+
+import { rabbitLimitsFromEnv } from "../src/orchestration/temporary-agent.ts";
+import { validateWorkflowGraph } from "../src/orchestration/graph.ts";
+import { runWorkflow } from "../src/orchestration/workflow-runner.ts";
+
+function withEnv(vars: Record<string, string | undefined>, run: () => void | Promise<void>) {
+  const previous = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  const restore = () => {
+    for (const [k, v] of Object.entries(previous)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+  try {
+    const result = run();
+    if (result instanceof Promise) return result.finally(restore);
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
+  }
+}
+
+test("limits come from the environment, with defaults, validation and ceilings", () => {
+  assert.deepEqual(rabbitLimitsFromEnv({}), RABBIT_LIMIT_DEFAULTS);
+  assert.deepEqual(
+    rabbitLimitsFromEnv({ PI_RABBIT_MAX_STEPS: "16", PI_RABBIT_MAX_PARALLEL: "2", PI_RABBIT_MAX_DEPTH: "1" }),
+    { maxSteps: 16, maxParallel: 2, maxDepth: 1 },
+  );
+  assert.deepEqual(
+    rabbitLimitsFromEnv({ PI_RABBIT_MAX_STEPS: "abc", PI_RABBIT_MAX_PARALLEL: "-3", PI_RABBIT_MAX_DEPTH: "" }),
+    RABBIT_LIMIT_DEFAULTS,
+  );
+  assert.deepEqual(
+    rabbitLimitsFromEnv({ PI_RABBIT_MAX_STEPS: "9999", PI_RABBIT_MAX_PARALLEL: "9999", PI_RABBIT_MAX_DEPTH: "9999" }),
+    RABBIT_LIMIT_CEILINGS,
+  );
+});
+
+test("the configured step limit is what the graph enforces", () => {
+  const steps = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `s${i}`, role: "investigator", task: "x" }));
+  withEnv({ PI_RABBIT_MAX_STEPS: undefined }, () => {
+    assert.equal(validateWorkflowGraph(steps(13)).valid, false);
+    assert.equal(validateWorkflowGraph(steps(12)).valid, true);
+  });
+  withEnv({ PI_RABBIT_MAX_STEPS: "14" }, () => {
+    assert.equal(validateWorkflowGraph(steps(14)).valid, true);
+    const over = validateWorkflowGraph(steps(15));
+    assert.equal(over.valid, false);
+    if (!over.valid) assert.match(over.error, /Limit ist 14/);
+  });
+  withEnv({ PI_RABBIT_MAX_STEPS: "999" }, () => {
+    assert.equal(validateWorkflowGraph(steps(RABBIT_LIMIT_CEILINGS.maxSteps + 1)).valid, false);
+  });
+});
+
+test("the configured parallelism is what the runner enforces", async () => {
+  const measure = async (env: string | undefined) => {
+    let active = 0;
+    let maxActive = 0;
+    let spawned = 0;
+    const polls = new Map<string, number>();
+    const rpc = {
+      call: async (method: string, params?: unknown) => {
+        if (method === "spawn") {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          void params;
+          spawned += 1;
+          return { version: 1, requestId: "x", success: true, data: { text: "s", details: { runId: `run-${spawned}` } } };
+        }
+        const { id } = params as { id: string };
+        const n = (polls.get(id) ?? 0) + 1;
+        polls.set(id, n);
+        if (n < 2) return { version: 1, requestId: "x", success: true, data: {} };
+        if (n === 2) active -= 1;
+        return { version: 1, requestId: "x", success: true, data: { text: "done", details: { results: [{ exitCode: 0 }] } } };
+      },
+      ping: async () => ({ version: 1, requestId: "x", success: true, data: {} }),
+    };
+    const steps = ["a", "b", "c", "d"].map((id) => ({ id, role: "investigator", task: id }));
+    await withEnv({ PI_RABBIT_MAX_PARALLEL: env }, async () => {
+      const result = await runWorkflow(rpc as never, steps, { pollOptions: { sleep: () => Promise.resolve() } });
+      assert.equal(result.ok, true);
+    });
+    return maxActive;
+  };
+  assert.equal(await measure(undefined), 3, "default parallelism");
+  assert.equal(await measure("1"), 1, "configured to serial");
+});

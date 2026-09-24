@@ -1,5 +1,5 @@
 import { isBaselineRole, isRabbitBundledRole } from "./agent-factory.ts";
-import { TEMPORARY_ROLE, validateRabbitSpec } from "./temporary-agent.ts";
+import { rabbitLimitsFromEnv, TEMPORARY_ROLE, validateRabbitSpec } from "./temporary-agent.ts";
 
 /**
  * Declarative DAG for Phase 8 — `docs/spec/01_ARCHITECTURE.md` §5's
@@ -17,8 +17,10 @@ import { TEMPORARY_ROLE, validateRabbitSpec } from "./temporary-agent.ts";
  * second axis of complexity (per-step ephemeral file lifecycle nested
  * inside the graph's own lifecycle) this round keeps out.
  */
-export const MAX_WORKFLOW_STEPS = 12; // docs/spec/01_ARCHITECTURE.md §7
-export const MAX_PARALLEL_AGENTS_DEFAULT = 3; // docs/spec/01_ARCHITECTURE.md §7
+// Defaults (docs/spec/01_ARCHITECTURE.md §7). The effective limits come from
+// `rabbitLimitsFromEnv()`, capped by hard ceilings, so they are configurable.
+export const MAX_WORKFLOW_STEPS = 12;
+export const MAX_PARALLEL_AGENTS_DEFAULT = 3;
 
 export type WorkflowStepStatus = "pending" | "running" | "completed" | "failed" | "skipped" | "stopped";
 
@@ -86,8 +88,9 @@ export function validateWorkflowGraph(
   if (!Array.isArray(steps) || steps.length === 0) {
     return { valid: false, error: "Workflow braucht mindestens einen Step." };
   }
-  if (steps.length > MAX_WORKFLOW_STEPS) {
-    return { valid: false, error: `Zu viele Steps (${steps.length}), Limit ist ${MAX_WORKFLOW_STEPS}.` };
+  const maxSteps = rabbitLimitsFromEnv().maxSteps;
+  if (steps.length > maxSteps) {
+    return { valid: false, error: `Zu viele Steps (${steps.length}), Limit ist ${maxSteps}.` };
   }
 
   const seenIds = new Set<string>();

@@ -343,8 +343,11 @@ bestimmt die effektiven Tools; Rabbit erweitert nur die Orchestrierung.
   Kontexttransport für Ergebnisse); andere Steps dürfen von ihnen abhängen.
 - Nur die whitelisteten Spec-Felder gehen an die Runtime; das MAX-Modell setzt
   Rabbit selbst, nicht der Spec.
-- Grenzen (`resolveRabbitLimits`): Steps 12, parallel 3, Tiefe 2, mit harten
-  Obergrenzen. Noch nicht an eine Konfigurationsquelle angebunden.
+- Grenzen konfigurierbar über Umgebungsvariablen, zur Laufzeit gelesen:
+  `PI_RABBIT_MAX_STEPS` (Default 12, max 24), `PI_RABBIT_MAX_PARALLEL`
+  (Default 3, max 5), `PI_RABBIT_MAX_DEPTH` (Default 2, max 3; wirkt auf die
+  Frontmatter dynamischer Rollen). Ungültige Werte fallen auf den Default
+  zurück, Werte über der Obergrenze werden gekappt.
 - Die Rollenbibliothek (`rabbit-*`, Baseline-Rollen) und `/rabbit define`
   bleiben, bis die Kette live getestet ist.
 - Live noch nicht verifiziert: der Spec-Pfad über die echte RPC-Bridge.

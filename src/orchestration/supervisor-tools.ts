@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { RABBIT_LIMIT_CEILINGS } from "./temporary-agent.ts";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { RabbitStateApi } from "../rabbit/state.ts";
@@ -152,7 +153,7 @@ export function registerRabbitSupervisorTools(
       additionalProperties: true,
       description: "Temporary agent contract for role=\"temporary\": {objective, profile: analyse|research, delegationReason, context?, scope?, expectedOutput?, requestedCapabilities?: read|search, modelPreference?, constraints?}. task is then only a short label.",
     })),
-    dependsOn: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 12 })),
+    dependsOn: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: RABBIT_LIMIT_CEILINGS.maxSteps })),
     kind: Type.Optional(StringEnum(["analysis", "synthesis", "verification"] as const)),
   });
 
@@ -166,7 +167,7 @@ export function registerRabbitSupervisorTools(
       "Orchestrated graphs require exactly one terminal kind=synthesis step with dependencies.",
     ],
     parameters: Type.Object({
-      steps: Type.Array(stepSchema, { minItems: 1, maxItems: 12 }),
+      steps: Type.Array(stepSchema, { minItems: 1, maxItems: RABBIT_LIMIT_CEILINGS.maxSteps }),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (state.mode() !== "active") throw new Error("RabbitMode ist aus — erst /rabbit on.");
@@ -209,7 +210,7 @@ export function registerRabbitSupervisorTools(
     ],
     parameters: Type.Object({
       reason: Type.String({ minLength: 1, maxLength: 2000 }),
-      steps: Type.Array(stepSchema, { minItems: 1, maxItems: 12 }),
+      steps: Type.Array(stepSchema, { minItems: 1, maxItems: RABBIT_LIMIT_CEILINGS.maxSteps }),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (state.mode() !== "active") throw new Error("RabbitMode ist aus — erst /rabbit on.");
