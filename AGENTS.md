@@ -28,8 +28,13 @@ mit ADR 011, und zuletzt ein Block durch die Sicherheitsschicht der
 Ausführungsumgebung selbst beim Versuch, dynamischen Rollen
 Schreibzugriff zu geben ("Create Unsafe Agents") — das gilt als harte
 Plattformgrenze, nicht als Präferenz, die man umgehen könnte. Dynamische
-Rollen bleiben deshalb dauerhaft read-only-only. Es gibt noch keinen
-Writer und kein `subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
+Rollen bleiben deshalb dauerhaft read-only-only. `/rabbit verify [profil]`
+deckt die dadurch entstandene, abgespeckte Form von Phase 12 ab: ein
+reiner Komfort-Trigger für das echte `project_check`-Tool über
+`pi.sendUserMessage` (nicht mutationsgekoppelt, da RabbitMode selbst nie
+mutiert — vollständige Begründung in README.md unter "Bewusst
+abgespeckt: Phase 12"). Es gibt noch keinen Writer und kein
+`subagents:rpc:v2` in `pi-subagents` selbst. Die vollständige
 Original-Spezifikation liegt unter
 [`docs/spec/`](docs/spec/) (11 Dateien + `MANIFEST.json`) und bleibt über
 alle Phasen hinweg die kanonische Referenz für Architektur, Contracts,
@@ -65,6 +70,11 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Kein Writer: dynamisch erzeugte Rollen erhalten dauerhaft keinen
   `write`-/`edit`-/`bash`-Zugriff — Phase 11 wurde geprüft und bewusst
   nicht umgesetzt (siehe "Aktueller Stand" oben und README.md).
+- `project_check` niemals selbst ausführen oder nachbauen: `/rabbit
+  verify` delegiert ausschließlich per `pi.sendUserMessage` an den
+  aktiven Agenten, der das echte, per `pi.registerTool` registrierte Tool
+  selbst aufruft (`src/rabbit/commands.ts`). Konkretisiert "keine
+  Verification-Logik duplizieren" für diesen Command.
 - Bestehende Pi-Shortcuts nicht verändern; einzige neue Bindung ist
   `Super+Alt+R`.
 - `Super+R` und `Shift+Tab` müssen unverändert bleiben.

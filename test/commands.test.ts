@@ -344,6 +344,72 @@ test("spawn/define/workflow never emit on an aurora-ui/* channel", async () => {
   assert.equal(auroraEmits.length, 0);
 });
 
+test("/rabbit verify works even when RabbitMode is off (not mutation-gated)", async () => {
+  const { api, state, ctx, notifications } = setup();
+  await run(api, ctx, "verify");
+
+  assert.equal(state.mode(), "off");
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0]?.type, "info");
+  assert.equal(api.sentUserMessages.length, 1);
+});
+
+test('/rabbit verify with no argument defaults to profile="verify"', async () => {
+  const { api, ctx } = setup();
+  await run(api, ctx, "verify");
+
+  const sent = api.sentUserMessages[0]?.content;
+  assert.match(String(sent), /profile="verify"/);
+});
+
+test("/rabbit verify <profile> uses the given profile instead of the default", async () => {
+  const { api, ctx } = setup();
+  await run(api, ctx, "verify release-check");
+
+  const sent = api.sentUserMessages[0]?.content;
+  assert.match(String(sent), /profile="release-check"/);
+});
+
+test("/rabbit verify's injected prompt preserves FAIL/INCOMPLETE semantics", async () => {
+  const { api, ctx } = setup();
+  await run(api, ctx, "verify");
+
+  const sent = String(api.sentUserMessages[0]?.content);
+  assert.match(sent, /FAIL bleibt FAIL/);
+  assert.match(sent, /INCOMPLETE/);
+});
+
+test("/rabbit verify does not send a message while a turn is running", async () => {
+  const api = createFakeExtensionApi();
+  const state = createRabbitState(api as unknown as ExtensionAPI);
+  registerRabbitCommand(
+    api as unknown as ExtensionAPI,
+    state,
+    createFakeSubagentRpcClient() as never,
+    createFakeDynamicRoleRegistry() as never,
+    createWorkflowSessionHolder(),
+  );
+  const { ctx, notifications } = createFakeCommandContext({
+    model: fakeModelSupportingMax(),
+    idle: false,
+  });
+
+  await run(api, ctx, "verify");
+
+  assert.equal(api.sentUserMessages.length, 0);
+  assert.equal(notifications[0]?.type, "warning");
+});
+
+test("/rabbit verify never emits on an aurora-ui/* channel", async () => {
+  const { api, ctx } = setup();
+  await run(api, ctx, "verify");
+
+  const auroraEmits = api.events.emitted.filter((entry) =>
+    entry.channel.startsWith("aurora-ui/"),
+  );
+  assert.equal(auroraEmits.length, 0);
+});
+
 test("unknown subcommand shows usage", async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, "banana");

@@ -59,13 +59,23 @@ interface RegisteredShortcut {
 
 type LifecycleHandler = (event: unknown, ctx: unknown) => unknown;
 
+export interface RecordedSendUserMessage {
+  content: string | unknown[];
+  options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean };
+}
+
 export interface FakeExtensionApi {
   readonly events: FakeEventBus;
   readonly commands: Map<string, RegisteredCommand>;
   readonly shortcuts: Map<string, RegisteredShortcut>;
   readonly thinkingLevelHistory: ThinkingLevel[];
+  readonly sentUserMessages: RecordedSendUserMessage[];
   registerCommand(name: string, options: RegisteredCommand): void;
   registerShortcut(shortcut: string, options: RegisteredShortcut): void;
+  sendUserMessage(
+    content: string | unknown[],
+    options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
+  ): void;
   on(event: string, handler: LifecycleHandler): void;
   /**
    * `ctx` defaults to `undefined`, matching real lifecycle events like
@@ -87,6 +97,7 @@ export function createFakeExtensionApi(
   const shortcuts = new Map<string, RegisteredShortcut>();
   const lifecycleHandlers = new Map<string, LifecycleHandler[]>();
   const thinkingLevelHistory: ThinkingLevel[] = [];
+  const sentUserMessages: RecordedSendUserMessage[] = [];
   let thinkingLevel: ThinkingLevel = initialThinkingLevel;
 
   return {
@@ -94,11 +105,15 @@ export function createFakeExtensionApi(
     commands,
     shortcuts,
     thinkingLevelHistory,
+    sentUserMessages,
     registerCommand(name, options) {
       commands.set(name, options);
     },
     registerShortcut(shortcut, options) {
       shortcuts.set(shortcut, options);
+    },
+    sendUserMessage(content, options) {
+      sentUserMessages.push({ content, options });
     },
     on(event, handler) {
       const list = lifecycleHandlers.get(event) ?? [];
@@ -309,6 +324,7 @@ export interface FakeCommandContextUi {
 export interface FakeCommandContext {
   ui: FakeCommandContextUi;
   model?: unknown;
+  isIdle(): boolean;
 }
 
 export function createFakeCommandContext(options?: {
@@ -317,6 +333,8 @@ export function createFakeCommandContext(options?: {
   initialThemeName?: string;
   /** `ctx.ui.setTheme(name)` fails (success: false) for names in this list. */
   failThemeNames?: string[];
+  /** `ctx.isIdle()` return value. Default: true (matches a real idle session). */
+  idle?: boolean;
 }): {
   ctx: FakeCommandContext;
   notifications: RecordedNotify[];
@@ -332,6 +350,7 @@ export function createFakeCommandContext(options?: {
 
   const ctx: FakeCommandContext = {
     model: options?.model,
+    isIdle: () => options?.idle ?? true,
     ui: {
       notify(message, type) {
         notifications.push({ message, type });

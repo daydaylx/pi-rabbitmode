@@ -7,7 +7,7 @@ Runtime orchestriert. RabbitMode ist **kein** neuer Permission-Level und
 **kein** vierter Workflow-Modus — es ist eine separat aktivierbare Schicht
 oberhalb von Pis bestehendem Permission-/Workflow-/Verification-System.
 
-## Status: Phase 1–10 Grundgerüst
+## Status: Phase 1–10 Grundgerüst + Phase 12 (abgespeckt)
 
 Diese Version implementiert ausschließlich:
 
@@ -64,6 +64,11 @@ Diese Version implementiert ausschließlich:
   Issue #1 ist bewusst Post-MVP), überschreibt keine ältere Revision und
   kann Limits (Parallelität) nicht ausweiten. Bereits abgeschlossene
   Steps werden nie erneut gespawnt.
+- `/rabbit verify [profil]` — abgespeckte Form von Phase 12 (siehe
+  „Bewusst abgespeckt: Phase 12" unten): übergibt per `pi.sendUserMessage`
+  eine Aufforderung an den aktiven Agenten, `project_check` mit dem
+  angegebenen Profil (Default `verify`) selbst auszuführen. Nicht an
+  aktives RabbitMode gebunden (berührt keinen Rabbit-eigenen State).
 - Nested Delegation (`docs/spec/02_CONTRACTS.md` §6: „Nested Depth
   maximal 2"): keine eigene Tiefenzählung — `pi-subagents` hat dafür
   bereits einen Mechanismus (`PI_SUBAGENT_DEPTH`/`PI_SUBAGENT_MAX_DEPTH`,
@@ -114,6 +119,43 @@ endet während RabbitMode noch aktiv ist.
 Dynamische Rollen bleiben deshalb read-only-only (`read`, `grep`, `find`,
 `ls`) — siehe `docs/spec/01_ARCHITECTURE.md` §7 zu `writeScope`-Beispielen
 für eine spätere, sorgfältiger geprüfte Runde, falls gewünscht.
+
+### Bewusst abgespeckt: Phase 12 (Verification-Integration)
+
+`docs/spec/02_CONTRACTS.md` §9 und `docs/spec/11_AGENT_WORK_ORDER.md` §12
+definieren den Verification Contract als Kette **nach einer Mutation**:
+`targeted checks -> project_check(profile=verify) -> hard verifier wenn
+Policy fordert -> synthesis`. Da Phase 11 (Writer) dauerhaft nicht gebaut
+wurde (siehe oben), gibt es in RabbitMode aktuell keinen Mutationspfad —
+weder dynamische Rollen noch Workflow-Steps können etwas ändern. Phase 12
+wie spezifiziert hätte deshalb keinen realen Trigger-Punkt und würde gegen
+die eigene Komplexitätsregel verstoßen ("keine Abstraktion ohne
+konkreten Consumer").
+
+Stattdessen liefert diese Runde eine bewusst abgespeckte Version:
+`/rabbit verify [profil]` ist ein reiner Komfort-Trigger für das echte
+`project_check`-Tool, gedacht für den Fall, dass die Nutzerin nach einem
+RabbitMode-Befund selbst etwas geändert hat — nicht mutationsgekoppelt,
+weil RabbitMode selbst nicht mutiert.
+
+`project_check` ist ein per `pi.registerTool` registriertes,
+LLM-seitiges Tool (`extensions/setup-core/index.ts` in `daydaylx/pi`) —
+eine Extension kann es nicht direkt aufrufen, ohne in ein fremdes Repo
+hineinzugreifen (verboten durch `03_REPOSITORY_BOUNDARIES.md` und "keine
+Verification-Logik duplizieren"). `/rabbit verify` nutzt deshalb den
+bereits etablierten Mechanismus `pi.sendUserMessage(...)` (siehe
+`extensions/plan-mode/commands.ts` in `daydaylx/pi` für das reale
+Vorbild): es übergibt eine Aufforderung an den aktiven Agenten, der
+`project_check` dann selbst über seinen eigenen Tool-Call-Turn ausführt
+— RabbitMode implementiert Verification nicht neu, es delegiert an die
+echte. `FAIL bleibt FAIL`, `INCOMPLETE gilt nicht als PASS` steht
+deshalb explizit im übergebenen Prompt.
+
+Bewusst nicht gebaut in dieser abgespeckten Form: ein automatischer
+`targeted checks`-Schritt davor, ein automatischer Hard-Verifier-Trigger
+danach und eine eigene Synthese — das bleibt, wie im Contract
+beschrieben, dem aktiven Agenten und Pis bestehender Policy überlassen,
+nicht RabbitMode.
 
 ### Bewusste Grenze in Phase 5: keine kontinuierliche Animation
 
@@ -237,6 +279,7 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit define <json>` | definiert und startet eine neue, session-lokale Rolle (read-only, siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit workflow <json>` | führt einen deklarativen DAG aus Steps mit Abhängigkeiten aus (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit replan <json>` | fügt dem laufenden Workflow eine begründete, numerierte Revision hinzu, max. 3 (siehe oben; nur bei aktivem RabbitMode) |
+| `/rabbit verify [profil]` | fordert `project_check` mit dem angegebenen Profil (Default `verify`) beim aktiven Agenten an (siehe „Bewusst abgespeckt: Phase 12" unten; **nicht** an aktives RabbitMode gebunden) |
 | `/rabbit stop` | meldet noch immer "kein aktiver Rabbit-Run" — Interrupt/Stop für einen laufenden Workflow ist noch nicht angebunden |
 
 Der State ist rein session-lokal (In-Memory), wird nirgends persistiert und
@@ -266,8 +309,10 @@ Phase 5b Rabbit-TUI-Feinschliff (durchgehende Animation, sobald ein
 (eigene Entscheidung/Umsetzung in `daydaylx/pi-subagents`) · Phase 8b
 Status-Polling live verifizieren · inline `/rabbit define` innerhalb
 eines Workflow-Steps · Phase 11 Writer (zurückgestellt, siehe oben) ·
-Phase 12 Verification-Integration · Phase 13 Persistenz (explizit) ·
-Phase 14 Benchmark.
+Phase 12 Verification-Integration vollständig — mutationsgekoppelter
+Teil setzt Phase 11 voraus, `/rabbit verify` deckt die abgespeckte Form
+bereits ab (siehe oben) · Phase 13 Persistenz (explizit) · Phase 14
+Benchmark.
 
 Die vollständige Spezifikation liegt unter [`docs/spec/`](docs/spec/).
 

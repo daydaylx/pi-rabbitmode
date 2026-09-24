@@ -67,7 +67,34 @@ const WORKFLOW_USAGE =
 const REPLAN_USAGE =
   `/rabbit replan {"reason":"<konkreter neuer Befund>","steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
 const USAGE =
-  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>|replan <json>";
+  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|define <json>|workflow <json>|replan <json>|verify [profil]";
+
+/**
+ * Phase 12 of the spec ties verification integration to a Writer/mutation
+ * path that was deliberately never built (see dynamic-role.ts and
+ * README.md's "Bewusst nicht gebaut: Phase 11") — RabbitMode itself never
+ * mutates anything, so there is no real "nach Mutation" trigger point.
+ * `/rabbit verify` is the scoped-down form the user chose instead: a plain
+ * convenience trigger for the real `project_check` tool, for use after the
+ * user has acted on RabbitMode's (read-only) findings themselves.
+ *
+ * `project_check` is registered via `pi.registerTool` (extensions/setup-
+ * core/index.ts in daydaylx/pi) — an LLM-facing tool, not something an
+ * extension can call directly without reaching into another repo's
+ * internals (forbidden by 03_REPOSITORY_BOUNDARIES.md and the "keine
+ * Verification-Logik duplizieren" rule). `pi.sendUserMessage` is the real,
+ * already-established mechanism for an extension to hand off to the active
+ * agent's own tool-calling turn instead (see extensions/plan-mode/
+ * commands.ts's `switchMode`/`sendUserMessage` call in daydaylx/pi) — this
+ * command reuses exactly that, it does not re-implement verification.
+ */
+const DEFAULT_VERIFY_PROFILE = "verify";
+
+function projectCheckPrompt(profile: string): string {
+  return `Führe project_check mit profile="${profile}" aus und melde das ` +
+    "Ergebnis unverändert weiter: ein FAIL bleibt FAIL, ein INCOMPLETE " +
+    "gilt nicht als PASS.";
+}
 
 const STEP_STATUS_GLYPH: Record<WorkflowStepStatus, string> = {
   pending: "○",
@@ -124,7 +151,7 @@ export function registerRabbitCommand(
 ): void {
   pi.registerCommand("rabbit", {
     description:
-      "RabbitMode (Phase 1-9 Grundgerüst): on|off|status|stop|spawn|define|workflow|replan",
+      "RabbitMode (Phase 1-10 Grundgerüst): on|off|status|stop|spawn|define|workflow|replan|verify",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const trimmed = args.trim();
       const { first, rest } = splitFirstWord(trimmed);
@@ -251,6 +278,26 @@ export function registerRabbitCommand(
             `Revision ${session.currentRevision()}/${MAX_WORKFLOW_REVISIONS}:\n${formatWorkflowResult(result)}`,
             result.ok ? "info" : "error",
           );
+          return;
+        }
+        case "verify": {
+          // Deliberately not gated behind `state.mode() === "active"`: this
+          // touches no Rabbit-specific state or RPC, it only hands off to
+          // the real project_check tool via the active agent's own turn —
+          // see the doc comment on projectCheckPrompt above.
+          if (!ctx.isIdle()) {
+            ctx.ui.notify(
+              "Ein Turn läuft gerade — /rabbit verify danach erneut ausführen.",
+              "warning",
+            );
+            return;
+          }
+          const profile = rest === "" ? DEFAULT_VERIFY_PROFILE : rest;
+          ctx.ui.notify(
+            `RabbitMode: fordere project_check(profile="${profile}") beim aktiven Agenten an …`,
+            "info",
+          );
+          pi.sendUserMessage(projectCheckPrompt(profile));
           return;
         }
         default:
