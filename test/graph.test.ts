@@ -10,7 +10,7 @@ import {
 } from "../src/orchestration/graph.ts";
 
 function step(id: string, overrides: Partial<WorkflowStepDefinition> = {}): WorkflowStepDefinition {
-  return { id, role: "investigator", task: `task for ${id}`, ...overrides };
+  return { id, role: "verifier", task: `task for ${id}`, ...overrides };
 }
 
 test("validateWorkflowGraph accepts a single valid step", () => {

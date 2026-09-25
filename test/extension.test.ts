@@ -163,7 +163,7 @@ test("/rabbit stop cancels the active workflow and then allows /rabbit off", asy
   const workflow = runCommand(
     api,
     ctx as never,
-    'workflow {"steps":[{"id":"inspect","role":"investigator","task":"Inspect the task."}]}',
+    'workflow {"steps":[{"id":"inspect","role":"verifier","task":"Inspect the task."}]}',
   );
   await spawnReady;
   assert.equal(spawned, true);

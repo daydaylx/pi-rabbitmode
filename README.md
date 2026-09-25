@@ -32,7 +32,7 @@ Diese Version implementiert ausschließlich:
   pingt die Runtime (kurzer Timeout) und zeigt an, ob sie erreichbar ist
 - `/rabbit spawn <rolle> <Aufgabe>` startet eine bereits installierte Rolle
   über das v1-`spawn`-RPC — die drei projekteigenen Basisrollen
-  (`investigator`, `debugger`, `verifier`) sowie drei von `pi-rabbitmode`
+  (`verifier`; `investigator` und `debugger` sind in `daydaylx/pi` entfallen, ADR 031) sowie drei von `pi-rabbitmode`
   selbst mitgelieferte, read-only Audit-Rollen
   (`permission-auditor`, `recovery-auditor`, `architecture-auditor`,
   unter `agents/`, automatisch von `pi-subagents` entdeckt über den
@@ -409,7 +409,7 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit on` | aktiviert RabbitMode (No-Op, falls bereits aktiv) |
 | `/rabbit off` | deaktiviert RabbitMode (No-Op, falls bereits aus) |
 | `/rabbit status` | zeigt Mode, `pi-subagents`-Erreichbarkeit, Rabbit-Run-Phase/aktive Steps und rein informativ beobachtete Aurora-Werte |
-| `/rabbit spawn <rolle> <Aufgabe>` | startet `investigator`\|`debugger`\|`verifier`\|`permission-auditor`\|`recovery-auditor`\|`architecture-auditor` (nur bei aktivem RabbitMode) |
+| `/rabbit spawn <rolle> <Aufgabe>` | startet `verifier`\|`permission-auditor`\|`recovery-auditor`\|`architecture-auditor` (nur bei aktivem RabbitMode) |
 | `/rabbit define <json>` | definiert und startet eine neue, session-lokale Rolle (read-only, siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit workflow <json>` | führt einen deklarativen DAG aus Steps mit Abhängigkeiten aus (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit replan <json>` | fügt dem laufenden Workflow eine begründete, numerierte Revision hinzu, max. 3 (siehe oben; nur bei aktivem RabbitMode) |

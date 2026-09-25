@@ -91,7 +91,7 @@ export const DYNAMIC_ROLE_SAVED_DIR = "rabbit-saved";
  * In practice this is defense-in-depth today: every such role's `tools`
  * excludes anything that could delegate further (`DYNAMIC_ROLE_TOOL_
  * ALLOWLIST` above — no `bash`/`subagent`), so none of them can nest at
- * all yet. Baseline roles (`investigator`/`debugger`/`verifier`) live in
+ * all yet. Baseline roles (`verifier`) live in
  * `daydaylx/pi`'s own `agents/`, outside this repo's control — their
  * depth behavior is whatever their own frontmatter (or the project
  * default) already sets.

@@ -94,14 +94,14 @@ const instantPoll = { pollOptions: { sleep: () => Promise.resolve() } };
 test("a single valid step completes and reports ok:true", async () => {
   const { rpc } = fakeSchedulerRpc();
   const steps: WorkflowStepDefinition[] = [
-    { id: "a", role: "investigator", task: "look" },
+    { id: "a", role: "verifier", task: "look" },
   ];
 
   const result = await runWorkflow(rpc as never, steps, instantPoll);
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.steps, [
-    { id: "a", status: "completed", message: "investigator done" },
+    { id: "a", status: "completed", message: "verifier done" },
   ]);
 });
 
@@ -125,7 +125,7 @@ test("a child timeout stays registered because its terminal state is unknown", a
   let now = 0;
   const result = await runWorkflow(
     rpc as never,
-    [{ id: "child", role: "investigator", task: "work" }],
+    [{ id: "child", role: "verifier", task: "work" }],
     {
       runController: controller,
       pollOptions: {
@@ -164,7 +164,7 @@ test("a stop during spawn keeps an unidentifiable child step unresolved", async 
   };
   const run = runWorkflow(
     rpc as never,
-    [{ id: "child", role: "investigator", task: "work" }],
+    [{ id: "child", role: "verifier", task: "work" }],
     { runController: controller },
   );
   await spawnStarted;
@@ -211,7 +211,7 @@ test("the example fan-out DAG: three auditors run, then synthesis waits for all 
     },
     {
       id: "synthesis",
-      role: "investigator",
+      role: "verifier",
       task: "combine findings",
       dependsOn: ["permissions", "recovery", "architecture"],
     },
@@ -228,7 +228,7 @@ test("the example fan-out DAG: three auditors run, then synthesis waits for all 
     assert.equal(found?.status, "completed", `${id} should have completed`);
   }
   // synthesis must be spawned only after all three auditors were spawned.
-  const synthesisIndex = spawnOrder.indexOf("investigator");
+  const synthesisIndex = spawnOrder.indexOf("verifier");
   assert.ok(
     synthesisIndex >= 3,
     `synthesis spawned too early: ${spawnOrder.join(",")}`,
@@ -236,12 +236,12 @@ test("the example fan-out DAG: three auditors run, then synthesis waits for all 
 });
 
 test("a failed step skips its dependents and the run reports ok:false", async () => {
-  const { rpc } = fakeSchedulerRpc({ failAgents: ["debugger"] });
+  const { rpc } = fakeSchedulerRpc({ failAgents: ["rabbitmode.recovery-auditor"] });
   const steps: WorkflowStepDefinition[] = [
-    { id: "reproduce", role: "debugger", task: "reproduce the bug" },
+    { id: "reproduce", role: "recovery-auditor", task: "reproduce the bug" },
     {
       id: "fix",
-      role: "investigator",
+      role: "verifier",
       task: "propose a fix",
       dependsOn: ["reproduce"],
     },
@@ -258,10 +258,10 @@ test("a failed step skips its dependents and the run reports ok:false", async ()
 });
 
 test("an independent step still completes even when an unrelated branch fails", async () => {
-  const { rpc } = fakeSchedulerRpc({ failAgents: ["debugger"] });
+  const { rpc } = fakeSchedulerRpc({ failAgents: ["rabbitmode.recovery-auditor"] });
   const steps: WorkflowStepDefinition[] = [
-    { id: "broken", role: "debugger", task: "x" },
-    { id: "fine", role: "investigator", task: "y" },
+    { id: "broken", role: "recovery-auditor", task: "x" },
+    { id: "fine", role: "verifier", task: "y" },
   ];
 
   const result = await runWorkflow(rpc as never, steps, instantPoll);
@@ -273,8 +273,8 @@ test("an independent step still completes even when an unrelated branch fails", 
 test("maxParallel is respected: three independent steps with maxParallel=1 never overlap", async () => {
   const { rpc, maxConcurrentSpawns } = fakeSchedulerRpc();
   const steps: WorkflowStepDefinition[] = [
-    { id: "a", role: "investigator", task: "x" },
-    { id: "b", role: "debugger", task: "y" },
+    { id: "a", role: "verifier", task: "x" },
+    { id: "b", role: "recovery-auditor", task: "y" },
     { id: "c", role: "verifier", task: "z" },
   ];
 
@@ -288,10 +288,10 @@ test("maxParallel is respected: three independent steps with maxParallel=1 never
 });
 
 test("a spawn-level rejection fails just that step, not the whole run for independent steps", async () => {
-  const { rpc } = fakeSchedulerRpc({ spawnErrorAgents: ["debugger"] });
+  const { rpc } = fakeSchedulerRpc({ spawnErrorAgents: ["rabbitmode.recovery-auditor"] });
   const steps: WorkflowStepDefinition[] = [
-    { id: "broken", role: "debugger", task: "x" },
-    { id: "fine", role: "investigator", task: "y" },
+    { id: "broken", role: "recovery-auditor", task: "x" },
+    { id: "fine", role: "verifier", task: "y" },
   ];
 
   const result = await runWorkflow(rpc as never, steps, instantPoll);
@@ -306,10 +306,10 @@ test("a spawn-level rejection fails just that step, not the whole run for indepe
 test("a dependent step receives only the output of its direct dependency", async () => {
   const { rpc, spawnedTasks } = fakeSchedulerRpc();
   const steps: WorkflowStepDefinition[] = [
-    { id: "source", role: "debugger", task: "inspect source" },
+    { id: "source", role: "recovery-auditor", task: "inspect source" },
     {
       id: "consumer",
-      role: "investigator",
+      role: "verifier",
       task: "synthesize source",
       dependsOn: ["source"],
     },
@@ -319,10 +319,10 @@ test("a dependent step receives only the output of its direct dependency", async
 
   assert.equal(result.ok, true);
   assert.match(
-    spawnedTasks.get("investigator") ?? "",
+    spawnedTasks.get("verifier") ?? "",
     /\[Dependency result: source\]/,
   );
-  assert.match(spawnedTasks.get("investigator") ?? "", /debugger done/);
+  assert.match(spawnedTasks.get("verifier") ?? "", /recovery-auditor done/);
 });
 
 test("fan-in receives all declared outputs while independent branches remain isolated", async () => {
@@ -330,10 +330,10 @@ test("fan-in receives all declared outputs while independent branches remain iso
   const steps: WorkflowStepDefinition[] = [
     { id: "permission", role: "permission-auditor", task: "audit permission" },
     { id: "recovery", role: "recovery-auditor", task: "audit recovery" },
-    { id: "isolated", role: "debugger", task: "independent task" },
+    { id: "isolated", role: "recovery-auditor", task: "independent task" },
     {
       id: "synthesis",
-      role: "investigator",
+      role: "verifier",
       task: "combine",
       dependsOn: ["permission", "recovery"],
     },
@@ -342,24 +342,24 @@ test("fan-in receives all declared outputs while independent branches remain iso
   const result = await runWorkflow(rpc as never, steps, instantPoll);
 
   assert.equal(result.ok, true);
-  const synthesisTask = spawnedTasks.get("investigator") ?? "";
+  const synthesisTask = spawnedTasks.get("verifier") ?? "";
   assert.match(synthesisTask, /\[Dependency result: permission\]/);
   assert.match(synthesisTask, /permission-auditor done/);
   assert.match(synthesisTask, /\[Dependency result: recovery\]/);
   assert.match(synthesisTask, /recovery-auditor done/);
   assert.doesNotMatch(
-    spawnedTasks.get("debugger") ?? "",
+    spawnedTasks.get("rabbitmode.recovery-auditor") ?? "",
     /permission|recovery-auditor done/,
   );
 });
 
 test("stopped dependency is skipped and cannot feed a dependent step", async () => {
-  const { rpc, spawnOrder } = fakeSchedulerRpc({ failAgents: ["debugger"] });
+  const { rpc, spawnOrder } = fakeSchedulerRpc({ failAgents: ["rabbitmode.recovery-auditor"] });
   const result = await runWorkflow(
     rpc as never,
     [
-      { id: "a", role: "debugger", task: "fail" },
-      { id: "b", role: "investigator", task: "must not run", dependsOn: ["a"] },
+      { id: "a", role: "recovery-auditor", task: "fail" },
+      { id: "b", role: "verifier", task: "must not run", dependsOn: ["a"] },
     ],
     instantPoll,
   );
@@ -374,7 +374,7 @@ test("stopped dependency is skipped and cannot feed a dependent step", async () 
 test("a step that stays running through several polls eventually completes", async () => {
   const { rpc } = fakeSchedulerRpc({ completeAfterPolls: 2 });
   const steps: WorkflowStepDefinition[] = [
-    { id: "a", role: "investigator", task: "x" },
+    { id: "a", role: "verifier", task: "x" },
   ];
 
   const result = await runWorkflow(rpc as never, steps, instantPoll);

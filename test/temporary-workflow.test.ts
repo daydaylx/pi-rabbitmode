@@ -18,7 +18,7 @@ test("graph accepts temporary steps and lets other steps depend on them", () => 
   const steps: WorkflowStepDefinition[] = [
     tempStep("a"),
     tempStep("b"),
-    { id: "synth", role: "investigator", task: "combine", dependsOn: ["a", "b"], kind: "synthesis" },
+    { id: "synth", role: "verifier", task: "combine", dependsOn: ["a", "b"], kind: "synthesis" },
   ];
   assert.deepEqual(validateWorkflowGraph(steps), { valid: true });
 });
@@ -28,14 +28,14 @@ test("graph rejects invalid temporary steps", () => {
     ["missing spec", { id: "a", role: TEMPORARY_ROLE, task: "x" }],
     ["verify profile", tempStep("a", { spec: { ...spec, profile: "verify" } })],
     ["write capability", tempStep("a", { spec: { ...spec, requestedCapabilities: ["write"] } })],
-    ["spec on a normal role", { id: "a", role: "investigator", task: "x", spec }],
+    ["spec on a normal role", { id: "a", role: "verifier", task: "x", spec }],
     ["unknown spec field", tempStep("a", { spec: { ...spec, tools: ["write"] } })],
   ];
   for (const [name, step] of cases) {
     assert.equal(validateWorkflowGraph([step]).valid, false, name);
   }
   const dependent = validateWorkflowGraph([
-    { id: "root", role: "investigator", task: "x" },
+    { id: "root", role: "verifier", task: "x" },
     tempStep("a", { dependsOn: ["root"] }),
   ]);
   assert.equal(dependent.valid, false);
@@ -95,14 +95,14 @@ test("temporary branches fan out and a normal synthesis step still receives thei
     [
       tempStep("a"),
       tempStep("b", { spec: { ...spec, objective: "Other branch" } }),
-      { id: "synth", role: "investigator", task: "combine", dependsOn: ["a", "b"], kind: "synthesis" },
+      { id: "synth", role: "verifier", task: "combine", dependsOn: ["a", "b"], kind: "synthesis" },
     ],
     instantPoll,
   );
   assert.equal(result.ok, true);
   assert.equal(spawns.length, 3);
   const synth = spawns[2];
-  assert.equal(synth.agent, "investigator");
+  assert.equal(synth.agent, "verifier");
   assert.match(String(synth.task), /\[Dependency result: a\]/);
   assert.match(String(synth.task), /\[Dependency result: b\]/);
 });

@@ -150,7 +150,7 @@ test("/rabbit stop reports no active run in Phase 1-2", async () => {
 
 test("/rabbit spawn requires RabbitMode to be active first", async () => {
   const { api, ctx, notifications } = setup();
-  await run(api, ctx, "spawn investigator find the bug");
+  await run(api, ctx, "spawn verifier find the bug");
 
   assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
 });
@@ -158,7 +158,7 @@ test("/rabbit spawn requires RabbitMode to be active first", async () => {
 test("/rabbit spawn with a baseline role and task spawns via the RPC client with explicit child MAX", async () => {
   const { api, ctx, notifications, rpc } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, "spawn investigator find the login bug");
+  await run(api, ctx, "spawn verifier find the login bug");
 
   assert.equal(notifications.length, 2);
   assert.equal(notifications[1]?.type, "info");
@@ -176,7 +176,7 @@ test("/rabbit spawn rejects a role outside the baseline set", async () => {
 test("/rabbit spawn without a task shows usage", async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, "spawn investigator");
+  await run(api, ctx, "spawn verifier");
 
   assert.match(notifications[1]?.message ?? "", /Nutzung/);
 });
@@ -302,7 +302,7 @@ test("/rabbit save-agent reports a registry error, not a crash", async () => {
 
 test("/rabbit workflow requires RabbitMode to be active first", async () => {
   const { api, ctx, notifications } = setup();
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
 
   assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
 });
@@ -343,7 +343,7 @@ test("/rabbit workflow with an invalid graph reports the validation error, not a
 test("/rabbit workflow with a valid single step runs it end to end", async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"look around"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"look around"}]}');
 
   assert.equal(notifications[1]?.type, "info");
   assert.match(notifications[1]?.message ?? "", /abgeschlossen: 1\/1/);
@@ -352,7 +352,7 @@ test("/rabbit workflow with a valid single step runs it end to end", async () =>
 
 test("/rabbit replan requires RabbitMode to be active first", async () => {
   const { api, ctx, notifications } = setup();
-  await run(api, ctx, 'replan {"reason":"r","steps":[{"id":"b","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'replan {"reason":"r","steps":[{"id":"b","role":"verifier","task":"x"}]}');
 
   assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
 });
@@ -368,7 +368,7 @@ test("/rabbit replan with no argument shows its usage", async () => {
 test("/rabbit replan without a prior /rabbit workflow is rejected", async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'replan {"reason":"r","steps":[{"id":"b","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'replan {"reason":"r","steps":[{"id":"b","role":"verifier","task":"x"}]}');
 
   assert.match(notifications[1]?.message ?? "", /Kein laufender Workflow/);
 });
@@ -376,7 +376,7 @@ test("/rabbit replan without a prior /rabbit workflow is rejected", async () => 
 test("/rabbit replan with invalid JSON reports a JSON error", async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
   await run(api, ctx, "replan {not json");
 
   assert.match(notifications[2]?.message ?? "", /Ungültiges JSON/);
@@ -385,8 +385,8 @@ test("/rabbit replan with invalid JSON reports a JSON error", async () => {
 test('/rabbit replan without "reason" or "steps" reports a clear error', async () => {
   const { api, ctx, notifications } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
-  await run(api, ctx, 'replan {"steps":[{"id":"b","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
+  await run(api, ctx, 'replan {"steps":[{"id":"b","role":"verifier","task":"x"}]}');
 
   assert.match(notifications[2]?.message ?? "", /Fehlendes "reason" oder "steps"/);
 });
@@ -394,11 +394,11 @@ test('/rabbit replan without "reason" or "steps" reports a clear error', async (
 test("/rabbit replan with a valid reason and new step adds revision 2", async () => {
   const { api, ctx, notifications, workflowSessions } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
   await run(
     api,
     ctx,
-    'replan {"reason":"found a gap","steps":[{"id":"b","role":"debugger","task":"y"}]}',
+    'replan {"reason":"found a gap","steps":[{"id":"b","role":"recovery-auditor","task":"y"}]}',
   );
 
   assert.equal(notifications[2]?.type, "info");
@@ -448,7 +448,7 @@ test("/rabbit save-workflow surfaces a persistence error as an error notificatio
   const { ctx, notifications } = createFakeCommandContext({ model: fakeModelSupportingMax() });
 
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
   await run(api, ctx, "save-workflow Not Valid");
 
   assert.equal(notifications[2]?.type, "error");
@@ -458,7 +458,7 @@ test("/rabbit save-workflow surfaces a persistence error as an error notificatio
 test("/rabbit save-workflow after a completed workflow writes a snapshot", async () => {
   const { api, ctx, notifications, saveWorkflow } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
   await run(api, ctx, "save-workflow audit-1");
 
   assert.equal(saveWorkflow.calls.length, 1);
@@ -470,16 +470,16 @@ test("/rabbit save-workflow after a completed workflow writes a snapshot", async
 test("a second /rabbit workflow call starts a fresh session, not a third revision", async () => {
   const { api, ctx, workflowSessions } = setup();
   await run(api, ctx, "on");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
   await run(
     api,
     ctx,
-    'replan {"reason":"found a gap","steps":[{"id":"b","role":"debugger","task":"y"}]}',
+    'replan {"reason":"found a gap","steps":[{"id":"b","role":"recovery-auditor","task":"y"}]}',
   );
   const firstSession = workflowSessions.current();
   assert.equal(firstSession?.currentRevision(), 2);
 
-  await run(api, ctx, 'workflow {"steps":[{"id":"c","role":"investigator","task":"z"}]}');
+  await run(api, ctx, 'workflow {"steps":[{"id":"c","role":"verifier","task":"z"}]}');
 
   const secondSession = workflowSessions.current();
   assert.notEqual(secondSession, firstSession);
@@ -494,8 +494,8 @@ test("spawn/define/workflow never emit on an aurora-ui/* channel", async () => {
     ctx,
     'define {"id":"api-checker","purpose":"p","instructions":"i","tools":["read"],"task":"t"}',
   );
-  await run(api, ctx, "spawn investigator find the bug");
-  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"investigator","task":"x"}]}');
+  await run(api, ctx, "spawn verifier find the bug");
+  await run(api, ctx, 'workflow {"steps":[{"id":"a","role":"verifier","task":"x"}]}');
   await run(api, ctx, "off");
 
   const auroraEmits = api.events.emitted.filter((entry) =>

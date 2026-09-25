@@ -67,11 +67,11 @@ function tool(
 }
 
 const initialSteps = [
-  { id: "inspect", role: "investigator", task: "Inspect the relevant code." },
-  { id: "audit", role: "debugger", task: "Independently check failure modes." },
+  { id: "inspect", role: "verifier", task: "Inspect the relevant code." },
+  { id: "audit", role: "recovery-auditor", task: "Independently check failure modes." },
   {
     id: "synthesis",
-    role: "investigator",
+    role: "verifier",
     task: "Synthesize the verified findings and uncertainties.",
     dependsOn: ["inspect", "audit"],
     kind: "synthesis",
@@ -175,10 +175,10 @@ test("aborting the Main Agent workflow stops its active child and settles the ru
     "call-abort",
     {
       steps: [
-        { id: "inspect", role: "investigator", task: "Inspect." },
+        { id: "inspect", role: "verifier", task: "Inspect." },
         {
           id: "synthesis",
-          role: "investigator",
+          role: "verifier",
           task: "Synthesize.",
           dependsOn: ["inspect"],
           kind: "synthesis",
@@ -206,7 +206,7 @@ test("rejects a workflow without a dependent terminal synthesis before any spawn
   await assert.rejects(
     tool(api, "rabbit_workflow").execute(
       "call-2",
-      { steps: [{ id: "inspect", role: "investigator", task: "Inspect." }] },
+      { steps: [{ id: "inspect", role: "verifier", task: "Inspect." }] },
       undefined,
       undefined,
       ctx,
@@ -243,7 +243,7 @@ test("a session-local dynamic role can be defined and then used in a workflow", 
         },
         {
           id: "synthesis",
-          role: "investigator",
+          role: "verifier",
           task: "Summarize the contract check.",
           dependsOn: ["check"],
           kind: "synthesis",
@@ -280,7 +280,7 @@ test("replanning requires a concrete reason and a new synthesis step", async () 
       {
         reason: "New evidence requires a targeted check.",
         steps: [
-          { id: "new-check", role: "debugger", task: "Check the new finding." },
+          { id: "new-check", role: "recovery-auditor", task: "Check the new finding." },
         ],
       },
       undefined,
@@ -301,10 +301,10 @@ test("replanning caps the session at three revisions", async () => {
     ctx,
   );
   const validRevision = (suffix: number) => [
-    { id: `check-${suffix}`, role: "debugger", task: "Check a new finding." },
+    { id: `check-${suffix}`, role: "recovery-auditor", task: "Check a new finding." },
     {
       id: `synthesis-${suffix}`,
-      role: "investigator",
+      role: "verifier",
       task: "Revise the overall synthesis.",
       dependsOn: ["inspect", `check-${suffix}`],
       kind: "synthesis",

@@ -134,7 +134,7 @@ test("limits come from the environment, with defaults, validation and ceilings",
 
 test("the configured step limit is what the graph enforces", () => {
   const steps = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ id: `s${i}`, role: "investigator", task: "x" }));
+    Array.from({ length: n }, (_, i) => ({ id: `s${i}`, role: "verifier", task: "x" }));
   withEnv({ PI_RABBIT_MAX_STEPS: undefined }, () => {
     assert.equal(validateWorkflowGraph(steps(13)).valid, false);
     assert.equal(validateWorkflowGraph(steps(12)).valid, true);
@@ -174,7 +174,7 @@ test("the configured parallelism is what the runner enforces", async () => {
       },
       ping: async () => ({ version: 1, requestId: "x", success: true, data: {} }),
     };
-    const steps = ["a", "b", "c", "d"].map((id) => ({ id, role: "investigator", task: id }));
+    const steps = ["a", "b", "c", "d"].map((id) => ({ id, role: "verifier", task: id }));
     await withEnv({ PI_RABBIT_MAX_PARALLEL: env }, async () => {
       const result = await runWorkflow(rpc as never, steps, { pollOptions: { sleep: () => Promise.resolve() } });
       assert.equal(result.ok, true);

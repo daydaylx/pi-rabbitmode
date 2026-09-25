@@ -50,7 +50,7 @@ function instantSuccessRpc() {
 const instantPoll = { pollOptions: { sleep: () => Promise.resolve() } };
 const step = (id: string, overrides: Partial<WorkflowStepDefinition> = {}): WorkflowStepDefinition => ({
   id,
-  role: "investigator",
+  role: "verifier",
   task: `task for ${id}`,
   ...overrides,
 });
@@ -112,7 +112,7 @@ test("saveWorkflowSnapshot writes a JSON file under .pi/rabbit-workflows/", asyn
   assert.equal(content.revisions.length, 1);
   assert.equal(content.revisions[0].revision, 1);
   assert.equal(content.revisions[0].reason, undefined);
-  assert.deepEqual(content.revisions[0].steps, [{ id: "a", role: "investigator", task: "task for a" }]);
+  assert.deepEqual(content.revisions[0].steps, [{ id: "a", role: "verifier", task: "task for a" }]);
   assert.equal(content.revisions[0].outcomes[0].id, "a");
   assert.equal(content.revisions[0].outcomes[0].status, "completed");
 });

@@ -21,13 +21,13 @@ function fakeRpc(
   };
 }
 
-test("BASELINE_ROLES is exactly investigator/debugger/verifier", () => {
-  assert.deepEqual(BASELINE_ROLES, ["investigator", "debugger", "verifier"]);
+test("BASELINE_ROLES is exactly the verifier technical profile", () => {
+  assert.deepEqual(BASELINE_ROLES, ["verifier"]);
 });
 
-test("isBaselineRole accepts only the three known roles", () => {
-  assert.equal(isBaselineRole("investigator"), true);
-  assert.equal(isBaselineRole("debugger"), true);
+test("isBaselineRole accepts only the verifier profile", () => {
+  assert.equal(isBaselineRole("investigator"), false);
+  assert.equal(isBaselineRole("debugger"), false);
   assert.equal(isBaselineRole("verifier"), true);
   assert.equal(isBaselineRole("architect"), false);
   assert.equal(isBaselineRole(""), false);
@@ -73,10 +73,10 @@ test("spawnBaselineRole calls spawn with agent+task, no ad-hoc definition fields
     return { version: 1, requestId: "x", method, success: true, data: { text: "started" } };
   });
 
-  const result = await spawnBaselineRole(rpc as never, "investigator", "find the bug");
+  const result = await spawnBaselineRole(rpc as never, "verifier", "find the bug");
 
   assert.equal(result.ok, true);
-  assert.deepEqual(capturedParams, { agent: "investigator", task: "find the bug" });
+  assert.deepEqual(capturedParams, { agent: "verifier", task: "find the bug" });
 });
 
 test("spawnBaselineRole surfaces the server's text on success", async () => {
@@ -84,22 +84,22 @@ test("spawnBaselineRole surfaces the server's text on success", async () => {
     version: 1,
     requestId: "x",
     success: true,
-    data: { text: "investigator run rabbit-abc123 started (async)." },
+    data: { text: "verifier run rabbit-abc123 started (async)." },
   }));
 
-  const result = await spawnBaselineRole(rpc as never, "investigator", "find the bug");
+  const result = await spawnBaselineRole(rpc as never, "verifier", "find the bug");
 
   assert.equal(result.ok, true);
-  assert.equal(result.message, "investigator run rabbit-abc123 started (async).");
+  assert.equal(result.message, "verifier run rabbit-abc123 started (async).");
 });
 
 test("spawnBaselineRole falls back to a generic message when the server sends no text", async () => {
   const rpc = fakeRpc(() => ({ version: 1, requestId: "x", success: true, data: {} }));
 
-  const result = await spawnBaselineRole(rpc as never, "debugger", "reproduce the crash");
+  const result = await spawnBaselineRole(rpc as never, "verifier", "reproduce the crash");
 
   assert.equal(result.ok, true);
-  assert.equal(result.message, "debugger gestartet.");
+  assert.equal(result.message, "verifier gestartet.");
 });
 
 test("spawnBaselineRole surfaces a server error without pretending success", async () => {
@@ -125,7 +125,7 @@ test("spawnBaselineRole surfaces a client-side rejection (e.g. RPC timeout)", as
     ping: async () => ({ version: 1, requestId: "x", success: true, data: {} }),
   };
 
-  const result = await spawnBaselineRole(rpc as never, "investigator", "find the bug");
+  const result = await spawnBaselineRole(rpc as never, "verifier", "find the bug");
 
   assert.equal(result.ok, false);
   assert.match(result.message, /timed out/);

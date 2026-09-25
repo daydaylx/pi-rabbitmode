@@ -23,7 +23,7 @@ import { RABBIT_MAX_SUBAGENT_DEPTH, type DynamicRoleRegistry } from "./dynamic-r
  *    cap) — this is a deliberate, explicit exception to the V1 non-goal
  *    "keine automatische persistente Agent-Dateien", not an oversight.
  */
-export const BASELINE_ROLES = ["investigator", "debugger", "verifier"] as const;
+export const BASELINE_ROLES = ["verifier"] as const;
 export type BaselineRole = (typeof BASELINE_ROLES)[number];
 
 export function isBaselineRole(value: string): value is BaselineRole {

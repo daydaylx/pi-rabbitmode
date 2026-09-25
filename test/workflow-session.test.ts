@@ -53,7 +53,7 @@ function instantSuccessRpc() {
 const instantPoll = { pollOptions: { sleep: () => Promise.resolve() } };
 const step = (id: string, overrides: Partial<WorkflowStepDefinition> = {}): WorkflowStepDefinition => ({
   id,
-  role: "investigator",
+  role: "verifier",
   task: `task for ${id}`,
   ...overrides,
 });
@@ -133,7 +133,7 @@ test("replan() never re-spawns a step that already completed in an earlier revis
   await session.replan(rpc as never, "need one more check", [step("b")], instantPoll);
 
   const spawnedAgents = spawnCalls.map((p) => (p as { agent: string }).agent);
-  assert.deepEqual(spawnedAgents, ["investigator"]); // only b, not a again
+  assert.deepEqual(spawnedAgents, ["verifier"]); // only b, not a again
 });
 
 test("a new step can depend on a step from an earlier revision", async () => {
@@ -210,10 +210,10 @@ test("a step that fails in revision 1 skips a revision-2 step depending on it", 
     }
     const { id } = params as { id: string };
     const agent = id.replace(/^run-/, "");
-    return terminalReply(agent, agent === "debugger");
+    return terminalReply(agent, agent === "rabbitmode.recovery-auditor");
   });
   const session = createWorkflowSession();
-  await session.start(rpc as never, [step("a", { role: "debugger" })], instantPoll);
+  await session.start(rpc as never, [step("a", { role: "recovery-auditor" })], instantPoll);
   assert.equal(session.revisions()[0]?.result.steps[0]?.status, "failed");
 
   const result = await session.replan(
