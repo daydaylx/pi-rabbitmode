@@ -42,13 +42,7 @@ function installFakeSubagentsServer(api: ReturnType<typeof createFakeExtensionAp
   });
 }
 
-/**
- * Exercises the real extension entrypoint end to end (not a unit-level
- * fake of state/commands) specifically to verify the fix this test guards:
- * a dynamic role file must never survive RabbitMode being turned off, not
- * just session_shutdown. See extension/index.ts's rabbit:mode-changed
- * listener.
- */
+/** Exercises the real extension entrypoint end to end (no unit-level fakes of state/commands). */
 
 let scratchCwd: string;
 
@@ -92,36 +86,6 @@ async function runCommand(
   assert.ok(command, "/rabbit must be registered");
   await command.handler(args, ctx);
 }
-
-test("a dynamic role file is deleted shortly after /rabbit off, not just at session_shutdown", async () => {
-  const api = createFakeExtensionApi();
-  installFakeSubagentsServer(api);
-  rabbitModeExtension(api as unknown as ExtensionAPI);
-  await api.fireLifecycleEvent("session_start");
-
-  const { ctx, notifications } = createFakeCommandContext({ model: fakeModelSupportingMax() });
-  (ctx as { cwd?: string }).cwd = scratchCwd;
-
-  await runCommand(api, ctx as never, "on");
-  await runCommand(
-    api,
-    ctx as never,
-    'define {"id":"api-checker","purpose":"p","instructions":"i","tools":["read"],"task":"t"}',
-  );
-
-  const definedMessage = notifications[1]?.message ?? "";
-  assert.doesNotMatch(definedMessage, /fehlgeschlagen|Limit erreicht|ungültig/i);
-  const filePath = path.join(scratchCwd, ".pi", "agents", "rabbit-dynamic", "api-checker.md");
-  assert.equal(await fileExists(filePath), true, "role file should exist right after /rabbit define");
-
-  await runCommand(api, ctx as never, "off");
-
-  assert.equal(
-    await waitUntilGone(filePath),
-    true,
-    "role file must be gone shortly after /rabbit off, without waiting for session_shutdown",
-  );
-});
 
 test("/rabbit stop cancels the active workflow and then allows /rabbit off", async () => {
   const api = createFakeExtensionApi();
@@ -181,27 +145,3 @@ test("/rabbit stop cancels the active workflow and then allows /rabbit off", asy
   assert.equal(notifications.at(-1)?.message.includes("deaktiviert"), true);
 });
 
-test("session_shutdown still cleans up a role left behind by a still-active RabbitMode", async () => {
-  const api = createFakeExtensionApi();
-  installFakeSubagentsServer(api);
-  rabbitModeExtension(api as unknown as ExtensionAPI);
-  await api.fireLifecycleEvent("session_start");
-
-  const { ctx } = createFakeCommandContext({ model: fakeModelSupportingMax() });
-  (ctx as { cwd?: string }).cwd = scratchCwd;
-
-  await runCommand(api, ctx as never, "on");
-  await runCommand(
-    api,
-    ctx as never,
-    'define {"id":"leftover","purpose":"p","instructions":"i","tools":["read"],"task":"t"}',
-  );
-
-  const filePath = path.join(scratchCwd, ".pi", "agents", "rabbit-dynamic", "leftover.md");
-  assert.equal(await fileExists(filePath), true);
-
-  // No /rabbit off here — session ends while RabbitMode is still active.
-  await api.fireLifecycleEvent("session_shutdown");
-
-  assert.equal(await fileExists(filePath), false);
-});

@@ -7,11 +7,8 @@ import type { RabbitStateApi } from "./state.ts";
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
 import {
   BASELINE_ROLES,
-  RABBIT_BUNDLED_ROLES,
   isBaselineRole,
-  isRabbitBundledRole,
 } from "../orchestration/agent-factory.ts";
-import type { DynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
 import type { WorkflowRunResult, WorkflowStepResult } from "../orchestration/workflow-runner.ts";
 import type { WorkflowStepDefinition, WorkflowStepStatus } from "../orchestration/graph.ts";
 import type { WorkflowSessionHolder } from "../orchestration/workflow-session-holder.ts";
@@ -68,9 +65,7 @@ function splitFirstWord(text: string): { first: string; rest: string } {
   return { first: text.slice(0, spaceIndex), rest: text.slice(spaceIndex + 1).trim() };
 }
 
-const SPAWNABLE_ROLES = [...BASELINE_ROLES, ...RABBIT_BUNDLED_ROLES];
-const DEFINE_USAGE =
-  '/rabbit define {"id":"...","purpose":"...","instructions":"...","tools":["read"],"task":"..."} (task optional: only register the role)';
+const SPAWNABLE_ROLES = [...BASELINE_ROLES];
 const WORKFLOW_USAGE =
   `/rabbit workflow {"steps":[{"id":"...","role":"<${SPAWNABLE_ROLES.join("|")}>","task":"...","dependsOn":["..."]}]}`;
 const REPLAN_USAGE =
@@ -78,11 +73,11 @@ const REPLAN_USAGE =
 const SPAWN_SPEC_USAGE =
   '/rabbit spawn {"objective":"...","profile":"analyse|research","delegationReason":"...","context":["..."],"scope":{"include":["..."]}} (temporärer read-only Agent)';
 const USAGE =
-  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|spawn <spec-json>|define <json>|workflow <json>|replan <json>|verify [profil]|save-agent <id>|save-workflow <name>";
+  "Nutzung: /rabbit on|off|status|stop|spawn <rolle> <Aufgabe>|spawn <spec-json>|workflow <json>|replan <json>|verify [profil]|save-workflow <name>";
 
 /**
  * Phase 12 of the spec ties verification integration to a Writer/mutation
- * path that was deliberately never built (see dynamic-role.ts and
+ * path that was deliberately never built (see
  * README.md's "Bewusst nicht gebaut: Phase 11") — RabbitMode itself never
  * mutates anything, so there is no real "nach Mutation" trigger point.
  * `/rabbit verify` is the scoped-down form the user chose instead: a plain
@@ -162,14 +157,13 @@ export function registerRabbitCommand(
   pi: ExtensionAPI,
   state: RabbitStateApi,
   rpc: SubagentRpcClient,
-  dynamicRoles: DynamicRoleRegistry,
   workflowSessions: WorkflowSessionHolder,
   saveWorkflow: typeof saveWorkflowSnapshot,
   runController: RabbitRunController = createRabbitRunController(),
 ): void {
   pi.registerCommand("rabbit", {
     description:
-      "RabbitMode-Orchestrierung: on|off|status|stop|spawn|define|workflow|replan|verify|save-agent|save-workflow",
+      "RabbitMode-Orchestrierung: on|off|status|stop|spawn|workflow|replan|verify|save-workflow",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       state.bindContext(ctx);
       const trimmed = args.trim();
@@ -239,14 +233,14 @@ export function registerRabbitCommand(
             const specResult = await specSession.start(
               rpc,
               [{ id: "spawn", role: TEMPORARY_ROLE, task: validated.spec.objective.slice(0, 200), spec: validated.spec, kind: "analysis" }],
-              { runController, dynamicRoles, childModel: specChildModel.model },
+              { runController, childModel: specChildModel.model },
             );
             ctx.ui.notify(formatWorkflowResult(specResult), specResult.ok ? "info" : "error");
             return;
           }
           const { first: rawRole, rest: task } = splitFirstWord(rest);
           const role = rawRole.toLowerCase();
-          if (task === "" || (!isBaselineRole(role) && !isRabbitBundledRole(role))) {
+          if (task === "" || !isBaselineRole(role)) {
             ctx.ui.notify(USAGE, "info");
             return;
           }
@@ -266,81 +260,9 @@ export function registerRabbitCommand(
           const session = workflowSessions.startNew();
           const result = await session.start(rpc, [{ id: "spawn", role, task, kind: "analysis" }], {
             runController,
-            dynamicRoles,
             childModel: childModel.model,
           });
           ctx.ui.notify(formatWorkflowResult(result), result.ok ? "info" : "error");
-          return;
-        }
-        case "define": {
-          if (rest === "") {
-            ctx.ui.notify(DEFINE_USAGE, "info");
-            return;
-          }
-          if (state.mode() !== "active") {
-            ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
-            return;
-          }
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(rest);
-          } catch {
-            ctx.ui.notify(`Ungültiges JSON.\n${DEFINE_USAGE}`, "error");
-            return;
-          }
-          const defined = await dynamicRoles.define(ctx.cwd, parsed);
-          if (!defined.ok) {
-            ctx.ui.notify(defined.error, "error");
-            return;
-          }
-          if (!defined.task) {
-            ctx.ui.notify(
-              `Ephemere read-only Rolle "${defined.role.runtimeName}" definiert und für Workflow-Steps verfügbar.`,
-              "info",
-            );
-            return;
-          }
-          if (state.hasActiveRun()) {
-            await dynamicRoles.cleanup(defined.role.id);
-            ctx.ui.notify("Ein Rabbit-Run ist bereits aktiv.", "warning");
-            return;
-          }
-          const childModel = rabbitMaxChildModel(ctx);
-          if (!childModel.supported) {
-            await dynamicRoles.cleanup(defined.role.id);
-            ctx.ui.notify(childModel.reason, "error");
-            return;
-          }
-          const session = workflowSessions.startNew();
-          const result = await session.start(rpc, [{
-            id: defined.role.id,
-            role: defined.role.runtimeName,
-            task: defined.task,
-            kind: "analysis",
-          }], {
-            runController,
-            dynamicRoles,
-            childModel: childModel.model,
-          });
-          ctx.ui.notify(formatWorkflowResult(result), result.ok ? "info" : "error");
-          return;
-        }
-        case "save-agent": {
-          if (rest === "") {
-            ctx.ui.notify("Nutzung: /rabbit save-agent <id>", "info");
-            return;
-          }
-          if (state.mode() !== "active") {
-            ctx.ui.notify("RabbitMode ist aus — erst /rabbit on.", "warning");
-            return;
-          }
-          const saved = await dynamicRoles.save(rest, ctx.cwd);
-          ctx.ui.notify(
-            saved.ok
-              ? `Rolle "${rest}" dauerhaft gespeichert: ${saved.filePath} (überlebt /rabbit off und Session-Ende).`
-              : saved.error,
-            saved.ok ? "info" : "error",
-          );
           return;
         }
         case "workflow": {
@@ -376,7 +298,6 @@ export function registerRabbitCommand(
           const session = workflowSessions.startNew();
           const result = await session.start(rpc, steps, {
             runController,
-            dynamicRoles,
             childModel: childModel.model,
           });
           ctx.ui.notify(formatWorkflowResult(result), result.ok ? "info" : "error");

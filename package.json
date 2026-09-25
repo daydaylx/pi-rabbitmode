@@ -23,7 +23,6 @@
   "files": [
     "src/**/*.ts",
     "themes/**/*.json",
-    "agents/**/*.md",
     "docs/**/*",
     "README.md",
     "AGENTS.md"
@@ -39,10 +38,7 @@
   },
   "pi": {
     "extensions": ["./src/extension/index.ts"],
-    "themes": ["./themes"],
-    "subagents": {
-      "agents": ["./agents"]
-    }
+    "themes": ["./themes"]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

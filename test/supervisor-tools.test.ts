@@ -7,7 +7,6 @@ import { registerRabbitSupervisorTools } from "../src/orchestration/supervisor-t
 import { createRabbitState } from "../src/rabbit/state.ts";
 import {
   createFakeCommandContext,
-  createFakeDynamicRoleRegistry,
   createFakeExtensionApi,
   createFakeSubagentRpcClient,
   fakeModelSupportingMax,
@@ -35,12 +34,10 @@ function setup() {
     runController,
   );
   const rpc = createFakeSubagentRpcClient();
-  const dynamicRoles = createFakeDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
   registerRabbitSupervisorTools(api as unknown as ExtensionAPI, {
     state,
     rpc: rpc as never,
-    dynamicRoles: dynamicRoles as never,
     workflowSessions,
     runController,
   });
@@ -50,7 +47,6 @@ function setup() {
     api,
     state,
     rpc,
-    dynamicRoles,
     workflowSessions,
     runController,
     ctx,
@@ -68,7 +64,7 @@ function tool(
 
 const initialSteps = [
   { id: "inspect", role: "verifier", task: "Inspect the relevant code." },
-  { id: "audit", role: "recovery-auditor", task: "Independently check failure modes." },
+  { id: "audit", role: "verifier", task: "Independently check failure modes." },
   {
     id: "synthesis",
     role: "verifier",
@@ -78,10 +74,9 @@ const initialSteps = [
   },
 ];
 
-test("registers the three Main Agent supervisor tools and runs a MAX-pinned synthesis DAG", async () => {
+test("registers the two Main Agent supervisor tools and runs a MAX-pinned synthesis DAG", async () => {
   const { api, rpc, runController, ctx } = setup();
   assert.deepEqual([...api.tools.keys()].sort(), [
-    "rabbit_define_role",
     "rabbit_replan",
     "rabbit_workflow",
   ]);
@@ -111,7 +106,6 @@ test("aborting the Main Agent workflow stops its active child and settles the ru
     api as unknown as ExtensionAPI,
     runController,
   );
-  const dynamicRoles = createFakeDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
   let notifyStatusRequested!: () => void;
   let resolveStatus:
@@ -164,7 +158,6 @@ test("aborting the Main Agent workflow stops its active child and settles the ru
   registerRabbitSupervisorTools(api as unknown as ExtensionAPI, {
     state,
     rpc: rpc as never,
-    dynamicRoles: dynamicRoles as never,
     workflowSessions,
     runController,
   });
@@ -216,55 +209,6 @@ test("rejects a workflow without a dependent terminal synthesis before any spawn
   assert.equal((rpc.spawnCalls as unknown[]).length, 0);
 });
 
-test("a session-local dynamic role can be defined and then used in a workflow", async () => {
-  const { api, dynamicRoles, rpc, ctx } = setup();
-  const defined = await tool(api, "rabbit_define_role").execute(
-    "call-define",
-    {
-      id: "api-checker",
-      purpose: "Check API behavior",
-      instructions: "Read code and report evidence.",
-      tools: ["read"],
-    },
-    undefined,
-    undefined,
-    ctx,
-  );
-  assert.match(defined.content[0]?.text ?? "", /rabbit-dynamic\.api-checker/);
-
-  const result = await tool(api, "rabbit_workflow").execute(
-    "call-dynamic-workflow",
-    {
-      steps: [
-        {
-          id: "check",
-          role: "rabbit-dynamic.api-checker",
-          task: "Check the public contract.",
-        },
-        {
-          id: "synthesis",
-          role: "verifier",
-          task: "Summarize the contract check.",
-          dependsOn: ["check"],
-          kind: "synthesis",
-        },
-      ],
-    },
-    undefined,
-    undefined,
-    ctx,
-  );
-  assert.match(
-    result.content[0]?.text ?? "",
-    /Rabbit workflow outcome: complete/,
-  );
-  assert.equal(dynamicRoles.size(), 1);
-  assert.equal(
-    (rpc.spawnCalls as Array<{ agent?: string }>)[0]?.agent,
-    "rabbit-dynamic.api-checker",
-  );
-});
-
 test("replanning requires a concrete reason and a new synthesis step", async () => {
   const { api, ctx } = setup();
   await tool(api, "rabbit_workflow").execute(
@@ -280,7 +224,7 @@ test("replanning requires a concrete reason and a new synthesis step", async () 
       {
         reason: "New evidence requires a targeted check.",
         steps: [
-          { id: "new-check", role: "recovery-auditor", task: "Check the new finding." },
+          { id: "new-check", role: "verifier", task: "Check the new finding." },
         ],
       },
       undefined,
@@ -301,7 +245,7 @@ test("replanning caps the session at three revisions", async () => {
     ctx,
   );
   const validRevision = (suffix: number) => [
-    { id: `check-${suffix}`, role: "recovery-auditor", task: "Check a new finding." },
+    { id: `check-${suffix}`, role: "verifier", task: "Check a new finding." },
     {
       id: `synthesis-${suffix}`,
       role: "verifier",

@@ -30,35 +30,23 @@ Diese Version implementiert ausschließlich:
 - einen Client für `pi-subagents`' bestehendes v1 EventBus-RPC
   (`subagents:rpc:v1:*`, `src/runtime/subagents-rpc.ts`): `/rabbit status`
   pingt die Runtime (kurzer Timeout) und zeigt an, ob sie erreichbar ist
-- `/rabbit spawn <rolle> <Aufgabe>` startet eine bereits installierte Rolle
-  über das v1-`spawn`-RPC — die drei projekteigenen Basisrollen
-  (`verifier`; `investigator` und `debugger` sind in `daydaylx/pi` entfallen, ADR 031) sowie drei von `pi-rabbitmode`
-  selbst mitgelieferte, read-only Audit-Rollen
-  (`permission-auditor`, `recovery-auditor`, `architecture-auditor`,
-  unter `agents/`, automatisch von `pi-subagents` entdeckt über den
-  `pi.subagents.agents`-Manifest-Schlüssel)
-- `/rabbit define <json>` — echte Ephemeral-Agent-Erzeugung: der
-  Hauptagent kann zur Laufzeit eine **neue** Rolle definieren
-  (`id`/`purpose`/`instructions`/`tools`/optional `task`), RabbitMode
-  schreibt sie als `.pi/agents/rabbit-dynamic/<id>.md` und kann sie direkt
-  oder in einem Workflow spawnen (`src/orchestration/dynamic-role.ts`).
-  Die Datei bleibt bis `/rabbit off` oder Session-Ende auffindbar; aktiven
-  Child-Runs wird Cleanup nicht vorzeitig entzogen.
-  **Tools sind hart auf read-only beschränkt** (`read`, `grep`, `find`,
-  `ls` — nie `bash`/`write`/`edit`), maximal 8 dynamische Rollen pro
-  Session, Frontmatter-Injection-Schutz für nutzergenerierten Text. Siehe
-  „Bewusste Ausnahme" unten.
+- `/rabbit spawn <rolle> <Aufgabe>` startet das technische Profil `verifier`
+  über das v1-`spawn`-RPC; `/rabbit spawn <spec-json>` startet einen
+  temporären, read-only Task-Agenten über den gemeinsamen Spec-Pfad
+  (`daydaylx/pi` ADR 031). Es gibt keine festen Rollen: `investigator` und
+  `debugger` sind in `daydaylx/pi` entfallen, die Rollenbibliothek
+  (`rabbit-*`/Audit-Rollen), `/rabbit define`, `rabbit_define_role`,
+  `/rabbit save-agent` und `src/orchestration/dynamic-role.ts` wurden
+  entfernt.
 - `/rabbit workflow <json>` — deklarativer DAG (`src/orchestration/
   graph.ts`): mehrere Steps mit `dependsOn`, begrenzter Parallelität
   (Default 3), Zyklus-/Unknown-Dependency-Validierung und transitivem Skip.
   Abhängige Steps erhalten ausschließlich die explizit deklarierten,
   erfolgreichen Vorgänger-Ergebnisse, mit UTF-8-Limit und sichtbarer
-  Truncation-Markierung. Ephemere Rollen aus `/rabbit define` können in
-  Workflow-Steps verwendet werden; das Bereinigen einer Rolle wartet, bis
-  alle zugehörigen Child-Runs sie freigegeben haben.
-- Der Main Agent bleibt Supervisor und erhält in aktivem RabbitMode drei
-  Tools: `rabbit_define_role` (session-lokale read-only Spezialistenrolle),
-  `rabbit_workflow` (validierter DAG mit genau einem terminalen
+  Truncation-Markierung. Workflow-Steps nutzen `verifier` oder
+  `role: "temporary"` mit einem `spec`.
+- Der Main Agent bleibt Supervisor und erhält in aktivem RabbitMode zwei
+  Tools: `rabbit_workflow` (validierter DAG mit genau einem terminalen
   Synthese-Step) und `rabbit_replan` (neue Befunde, neue Synthese,
   append-only, maximal drei Revisionen). Die Systemanweisung empfiehlt
   einfache Aufgaben selbst zu lösen, vorhandene Rollen vorzuziehen und
@@ -81,12 +69,6 @@ Diese Version implementiert ausschließlich:
   eine Aufforderung an den aktiven Agenten, `project_check` mit dem
   angegebenen Profil (Default `verify`) selbst auszuführen. Nicht an
   aktives RabbitMode gebunden (berührt keinen Rabbit-eigenen State).
-- `/rabbit save-agent <id>` (Phase 13) — verschiebt eine noch nicht
-  aufgeräumte `/rabbit define`-Rolle von `.pi/agents/rabbit-dynamic/`
-  (ephemeral, auto-cleanup) nach `.pi/agents/rabbit-saved/` und nimmt sie
-  aus der Cleanup-Verfolgung — sie überlebt `/rabbit off` und Session-Ende.
-  Kein neues Dateiformat, keine umgeschriebene Frontmatter: derselbe
-  Inhalt, nur nicht mehr zum Löschen vorgemerkt. Explizit, nie automatisch.
 - `/rabbit save-workflow <name>` (Phase 13) — schreibt die vollständige,
   append-only Revisionshistorie des laufenden Workflows (Steps + Replan-
   Gründe + kondensierte Step-Ergebnisse) als JSON nach
@@ -96,13 +78,9 @@ Diese Version implementiert ausschließlich:
   Orchestrierungs-Oberfläche, keine Persistenz von etwas, das bereits läuft.
 - Nested Delegation (`docs/spec/02_CONTRACTS.md` §6: „Nested Depth
   maximal 2"): keine eigene Tiefenzählung — `pi-subagents` hat dafür
-  bereits einen Mechanismus (`PI_SUBAGENT_DEPTH`/`PI_SUBAGENT_MAX_DEPTH`,
-  pro Rolle per `maxSubagentDepth`-Frontmatter). Jede von `pi-rabbitmode`
-  geschriebene Rolle (die drei mitgelieferten Audit-Rollen und jede
-  `/rabbit define`-Rolle) setzt `maxSubagentDepth: 2` explizit. In der
-  Praxis rein vorsorglich: keine dieser Rollen bekommt ein
-  delegationsfähiges Tool (`bash`/`subagent`), kann also aktuell ohnehin
-  nicht weiter verschachteln.
+  bereits einen Mechanismus (`PI_SUBAGENT_DEPTH`/`PI_SUBAGENT_MAX_DEPTH`).
+  Temporäre Agenten erhalten weder `subagent` noch ein anderes
+  delegationsfähiges Tool und können nicht weiter verschachteln.
 
 Ein gemeinsamer Run-Controller (eine Instanz pro Extension-Session) ist die
 Autorität für Run-ID, Revision, Laufphase, aktive Steps und Child-Run-IDs.
@@ -211,14 +189,8 @@ Command-Namen vor, explizit nutzergetriggert, nie automatisch — die
 Formatentscheidungen unten sind diese Runde selbst getroffen und hier
 dokumentiert, nicht aus der Spec übernommen.
 
-- `/rabbit save-agent <id>` erfindet kein neues Dateiformat: `pi-subagents`
-  entdeckt `.pi/agents/` bereits rekursiv (siehe Phase 7 oben), also
-  verschiebt `save()` (`src/orchestration/dynamic-role.ts`) die
-  bestehende `.md`-Datei nur von `rabbit-dynamic/` (auto-cleanup) nach
-  `rabbit-saved/` (kein Cleanup mehr) und behält die
-  `package: rabbit-dynamic`-Frontmatter bewusst bei — ehrliche Herkunft
-  ("diese Rolle wurde ursprünglich von RabbitMode automatisch erzeugt"),
-  kein Grund, das zu verschleiern.
+- `/rabbit save-agent` wurde mit der Rollenbibliothek entfernt (nur noch
+  historisch beschrieben).
 - `/rabbit save-workflow <name>` (`src/orchestration/
   workflow-persistence.ts`) ist ein reiner JSON-Audit-Snapshot der
   vollständigen `WorkflowSession.revisions()`-Historie. Es gibt bewusst
@@ -227,10 +199,9 @@ dokumentiert, nicht aus der Spec übernommen.
   Loader wäre neue, von der Spec nicht verlangte Orchestrierungs-Oberfläche
   (verstößt gegen die Komplexitätsregel) — diese Runde persistiert, was
   bereits gelaufen ist, sie baut keine Wiederverwendungs-Funktion.
-- Beide Commands sind, wie `/rabbit define`/`/rabbit workflow`, an
-  aktives RabbitMode gebunden (anders als `/rabbit verify`): sie
-  operieren direkt auf Rabbit-eigenem State (der Dynamic-Role-Registry
-  bzw. der laufenden `WorkflowSession`), nicht auf einem
+- `/rabbit save-workflow` ist, wie `/rabbit workflow`, an aktives
+  RabbitMode gebunden (anders als `/rabbit verify`): es operiert direkt auf
+  Rabbit-eigenem State (der laufenden `WorkflowSession`), nicht auf einem
   repository-fremden Tool.
 
 ### Bewusst zurückgestellt: Phase 14 (Benchmark/Rollout)
@@ -293,64 +264,13 @@ rpc.ts` übernommen, nicht importiert, da `pi-subagents` selbst kein
 `exports`-Feld hat). `daydaylx/pi-subagents` selbst bleibt in dieser Runde
 unverändert.
 
-### Phase 7: echte Ephemeral-Agent-Erzeugung ohne v2 — bewusste Ausnahme vom V1-Nicht-Ziel
+### Phase 7: echte Ephemeral-Agent-Erzeugung — entfernt
 
-`docs/spec/08_RISKS_AND_NON_GOALS.md` nennt für V1 explizit als
-Nicht-Ziel: „keine automatische persistente Agent-Dateien". `/rabbit
-define` ist eine bewusste, vom Nutzer angeforderte Ausnahme davon: statt
-auf das fehlende v2-Protokoll zu warten, nutzt es einen bereits
-vorhandenen, öffentlichen Mechanismus — `pi-subagents` durchsucht beim
-Rollen-Discovery auch projektlokale `.pi/agents/`-Verzeichnisse
-(`~/.pi/agent/git/github.com/daydaylx/pi-subagents/src/agents/
-agent-discovery.ts`). RabbitMode schreibt dorthin, spawnt, und löscht die
-Datei wieder — der *Zweck* bleibt ephemeral/session-lokal, auch wenn die
-Rolle technisch kurz auf der Platte liegt (pi-subagents kann eine Rolle
-nur aus einer Datei entdecken, es gibt keinen In-Memory-Weg).
-
-Weil das eine Rolle mit echtem Tool-Zugriff automatisch erzeugt, ist die
-Sicherheitsgrenze im Code erzwungen, nicht nur empfohlen:
-
-- Tools nur aus `["read", "grep", "find", "ls"]` — kein `bash`/`write`/`edit`
-  kann je über `/rabbit define` vergeben werden.
-- jedes Freitext-Feld, das ins Frontmatter wandert (`purpose`), wird gegen
-  Frontmatter-Injection geprüft (keine Newlines, kein `---`) — ein
-  bösartiger `purpose`-Text kann keine zusätzlichen Frontmatter-Felder wie
-  `tools: bash` einschmuggeln.
-- maximal 8 dynamische Rollen pro Session
-  (`docs/spec/01_ARCHITECTURE.md` §7).
-- Cleanup bei Erfolg, Fehlschlag und als Fallback bei `session_shutdown` —
-  keine verwaiste Rollendatei überlebt die Session.
-
-Verzichtet wird hier bewusst weiterhin auf: Schreib-/Ausführungs-Tools für
-dynamische Rollen, Nested-Delegation dynamischer Rollen und ein
-`v2`-Protokoll in `pi-subagents` selbst.
-
-### Temporäre Agenten über `spec` (daydaylx/pi ADR 031)
-
-Rabbit startet Agenten ohne Rollendatei über denselben `spec`-Vertrag wie
-normales Pi (v1-RPC `spawn` mit `spec`). Die Runtime baut einen zustandslosen
-In-Memory-Agenten (frischer Kontext, kein Memory, keine Delegation) und
-bestimmt die effektiven Tools; Rabbit erweitert nur die Orchestrierung.
-
-- `/rabbit spawn {"objective":"…","profile":"analyse","delegationReason":"…"}`
-  oder ein Workflow-Step mit `role: "temporary"` und `spec` (`task` ist dann
-  nur ein Kurzlabel).
-- Profile nur `analyse` und `research`, Fähigkeiten nur `read`/`search`.
-  `verify`, `write`, Shell, Netzwerk und Delegation werden abgelehnt:
-  Orchestrierung ist keine Berechtigung, und die Verifier-Kette läuft nur
-  über den Host-Guard in `daydaylx/pi`.
-- Temporäre Steps können noch nicht von anderen Steps abhängen (es gibt keinen
-  Kontexttransport für Ergebnisse); andere Steps dürfen von ihnen abhängen.
-- Nur die whitelisteten Spec-Felder gehen an die Runtime; das MAX-Modell setzt
-  Rabbit selbst, nicht der Spec.
-- Grenzen konfigurierbar über Umgebungsvariablen, zur Laufzeit gelesen:
-  `PI_RABBIT_MAX_STEPS` (Default 12, max 24), `PI_RABBIT_MAX_PARALLEL`
-  (Default 3, max 5), `PI_RABBIT_MAX_DEPTH` (Default 2, max 3; wirkt auf die
-  Frontmatter dynamischer Rollen). Ungültige Werte fallen auf den Default
-  zurück, Werte über der Obergrenze werden gekappt.
-- Die Rollenbibliothek (`rabbit-*`, Baseline-Rollen) und `/rabbit define`
-  bleiben, bis die Kette live getestet ist.
-- Live noch nicht verifiziert: der Spec-Pfad über die echte RPC-Bridge.
+Phase 7 (`/rabbit define`, `rabbit_define_role`, `dynamic-role.ts`, geschriebene
+Rollendateien unter `.pi/agents/rabbit-dynamic/`) wurde entfernt: Sie
+widersprach dem Grundsatz aus `daydaylx/pi` ADR 031, dass temporäre Agenten
+nur im Speicher existieren und keine Rollenidentität besitzen. Ersatz ist der
+Spec-Pfad (`/rabbit spawn <spec-json>`, `role: "temporary"` im Workflow).
 
 ### Phase 8: Status-Polling — live verifiziert, ein echter Bug gefunden und behoben
 
@@ -409,12 +329,10 @@ Details: [`docs/spec/03_REPOSITORY_BOUNDARIES.md`](docs/spec/03_REPOSITORY_BOUND
 | `/rabbit on` | aktiviert RabbitMode (No-Op, falls bereits aktiv) |
 | `/rabbit off` | deaktiviert RabbitMode (No-Op, falls bereits aus) |
 | `/rabbit status` | zeigt Mode, `pi-subagents`-Erreichbarkeit, Rabbit-Run-Phase/aktive Steps und rein informativ beobachtete Aurora-Werte |
-| `/rabbit spawn <rolle> <Aufgabe>` | startet `verifier`\|`permission-auditor`\|`recovery-auditor`\|`architecture-auditor` (nur bei aktivem RabbitMode) |
-| `/rabbit define <json>` | definiert und startet eine neue, session-lokale Rolle (read-only, siehe oben; nur bei aktivem RabbitMode) |
+| `/rabbit spawn <rolle> <Aufgabe>` | startet das Profil `verifier` (nur bei aktivem RabbitMode); `/rabbit spawn <spec-json>` startet einen temporären read-only Agenten |
 | `/rabbit workflow <json>` | führt einen deklarativen DAG aus Steps mit Abhängigkeiten aus (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit replan <json>` | fügt dem laufenden Workflow eine begründete, numerierte Revision hinzu, max. 3 (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit verify [profil]` | fordert `project_check` mit dem angegebenen Profil (Default `verify`) beim aktiven Agenten an (siehe „Bewusst abgespeckt: Phase 12" unten; **nicht** an aktives RabbitMode gebunden) |
-| `/rabbit save-agent <id>` | macht eine noch ephemerale `/rabbit define`-Rolle dauerhaft (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit save-workflow <name>` | schreibt einen JSON-Audit-Snapshot des laufenden Workflows (siehe oben; nur bei aktivem RabbitMode) |
 | `/rabbit stop` | stoppt laufende Child-Runs kontrolliert; fehlgeschlagene Stop-Aufrufe werden gemeldet, ein Spawn-Race bleibt als ausstehend markiert |
 

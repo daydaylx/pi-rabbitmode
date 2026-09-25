@@ -5,7 +5,6 @@ import { Type } from "typebox";
 import type { RabbitStateApi } from "../rabbit/state.ts";
 import { rabbitMaxChildModel } from "../rabbit/effort.ts";
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
-import type { DynamicRoleRegistry } from "./dynamic-role.ts";
 import { validateWorkflowGraph, type WorkflowStepDefinition } from "./graph.ts";
 import { stopRabbitRun, type RabbitRunController } from "./run-controller.ts";
 import type { WorkflowSessionHolder } from "./workflow-session-holder.ts";
@@ -16,7 +15,7 @@ const SUPERVISOR_GUIDANCE = `
 RabbitMode supervisor contract (active only while RabbitMode is on):
 - You are the Root Supervisor; RabbitMode's tools execute only the DAG you submit and enforce role, size, dependency, concurrency, MAX-thinking, and lifecycle rules.
 - First classify the task. Solve small/simple tasks yourself; do not delegate without a meaningful independent branch.
-- For independent analysis branches prefer temporary agents: a step with role="temporary" and a spec (objective, profile analyse|research, delegationReason, optional context/scope/expectedOutput). They are stateless, read-only and get only the context you put in the spec; they cannot depend on other steps, but other steps may depend on them. Installed roles remain available for the rest: investigator, debugger, verifier, rabbitmode.permission-auditor, rabbitmode.recovery-auditor, rabbitmode.architecture-auditor. Use rabbit_define_role only for a genuine missing specialty; generated roles are read-only.
+- For independent analysis branches prefer temporary agents: a step with role="temporary" and a spec (objective, profile analyse|research, delegationReason, optional context/scope/expectedOutput). They are stateless, read-only and get only the context you put in the spec; they cannot depend on other steps, but other steps may depend on them. The only installed role is verifier; there are no fixed specialist roles.
 - Subagents deliver bounded work results; you decide. If results contradict, compare their evidence, re-check yourself or run a targeted verification — never decide by majority, completion order or model strength.
 - Build a bounded DAG with explicit dependsOn. Mark the final child synthesis step with kind="synthesis" and make it a terminal sink that consumes the relevant branch outputs.
 - After rabbit_workflow returns, inspect actual child outputs, distinguish complete/incomplete/failed/cancelled, and synthesize only from those outputs. If there is a concrete new finding that needs more work, call rabbit_replan with a reason and a new synthesis step; at most three revisions are allowed.
@@ -70,16 +69,11 @@ function bindAbortStop(
   return () => signal?.removeEventListener("abort", stop);
 }
 
-function dynamicRoleValidator(dynamicRoles: DynamicRoleRegistry) {
-  return (role: string) => dynamicRoles.resolveRuntimeName(role) !== undefined;
-}
-
 function validateSupervisorPlan(
   steps: WorkflowStepDefinition[],
-  dynamicRoles: DynamicRoleRegistry,
   newRevisionSteps?: readonly WorkflowStepDefinition[],
 ): string | undefined {
-  const graph = validateWorkflowGraph(steps, { isDynamicRole: dynamicRoleValidator(dynamicRoles) });
+  const graph = validateWorkflowGraph(steps);
   if (!graph.valid) return graph.error;
   const candidateSteps = newRevisionSteps ?? steps;
   const syntheses = candidateSteps.filter((step) => step.kind === "synthesis");
@@ -96,7 +90,6 @@ function validateSupervisorPlan(
 export interface RabbitSupervisorToolDependencies {
   state: RabbitStateApi;
   rpc: SubagentRpcClient;
-  dynamicRoles: DynamicRoleRegistry;
   workflowSessions: WorkflowSessionHolder;
   runController: RabbitRunController;
 }
@@ -105,43 +98,11 @@ export function registerRabbitSupervisorTools(
   pi: ExtensionAPI,
   dependencies: RabbitSupervisorToolDependencies,
 ): void {
-  const { state, rpc, dynamicRoles, workflowSessions, runController } = dependencies;
+  const { state, rpc, workflowSessions, runController } = dependencies;
 
   pi.on("before_agent_start", (event) => {
     if (state.mode() !== "active") return;
     return { systemPrompt: `${event.systemPrompt}${SUPERVISOR_GUIDANCE}` };
-  });
-
-  pi.registerTool({
-    name: "rabbit_define_role",
-    label: "Rabbit Define Role",
-    description: "Create a session-local, read-only Rabbit specialist for a genuine missing skill.",
-    promptSnippet: "Create an ephemeral read-only specialist only when installed roles do not fit",
-    promptGuidelines: [
-      "Use rabbit_define_role only for a real missing specialty; tools are hard-limited to read, grep, find, and ls.",
-      "Define the role without a task, then reference its rabbit-dynamic.<id> runtime name in rabbit_workflow.",
-    ],
-    parameters: Type.Object({
-      id: Type.String({ minLength: 2, maxLength: 41 }),
-      purpose: Type.String({ minLength: 1, maxLength: 300 }),
-      instructions: Type.String({ minLength: 1, maxLength: 4000 }),
-      tools: Type.Array(Type.String(), { minItems: 1, maxItems: 4 }),
-    }),
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      if (state.mode() !== "active") throw new Error("RabbitMode ist aus — erst /rabbit on.");
-      if (signal?.aborted) throw new Error("Rabbit role definition cancelled.");
-      state.bindContext(ctx);
-      const defined = await dynamicRoles.define(ctx.cwd, params);
-      if (!defined.ok) throw new Error(defined.error);
-      if (signal?.aborted) {
-        await dynamicRoles.cleanup(defined.role.id);
-        throw new Error("Rabbit role definition cancelled.");
-      }
-      return {
-        content: [{ type: "text", text: `Ephemere read-only Rolle verfügbar: ${defined.role.runtimeName}` }],
-        details: { id: defined.role.id, runtimeName: defined.role.runtimeName },
-      };
-    },
   });
 
   const stepSchema = Type.Object({
@@ -179,14 +140,13 @@ export function registerRabbitSupervisorTools(
       }
       const childModel = rabbitMaxChildModel(ctx);
       if (!childModel.supported) throw new Error(childModel.reason);
-      const error = validateSupervisorPlan(params.steps, dynamicRoles);
+      const error = validateSupervisorPlan(params.steps);
       if (error) throw new Error(error);
       const session = workflowSessions.startNew();
       const unbindAbort = bindAbortStop(signal, rpc, runController);
       try {
         const result = await session.start(rpc, params.steps, {
           runController,
-          dynamicRoles,
           childModel: childModel.model,
         });
         return {
@@ -220,7 +180,7 @@ export function registerRabbitSupervisorTools(
       if (!session || session.currentRevision() === 0) throw new Error("Kein Rabbit-Workflow vorhanden, der replanned werden kann.");
       const previous = session.revisions()[session.revisions().length - 1];
       const combined = [...(previous?.steps ?? []), ...params.steps];
-      const error = validateSupervisorPlan(combined, dynamicRoles, params.steps);
+      const error = validateSupervisorPlan(combined, params.steps);
       if (error) throw new Error(error);
       const unbindAbort = bindAbortStop(signal, rpc, runController);
       try {

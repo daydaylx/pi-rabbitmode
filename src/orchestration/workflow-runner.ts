@@ -1,11 +1,8 @@
-import type { DynamicRoleRegistry } from "./dynamic-role.ts";
 import { rabbitLimitsFromEnv, spawnTemporaryAgent, TEMPORARY_ROLE } from "./temporary-agent.ts";
 import type { SubagentRpcClient } from "../runtime/subagents-rpc.ts";
 import {
   isBaselineRole,
-  isRabbitBundledRole,
   spawnBaselineRole,
-  spawnRabbitBundledRole,
 } from "./agent-factory.ts";
 import {
   propagateSkips,
@@ -45,7 +42,6 @@ export interface RunWorkflowOptions {
   /** Step results to seed as already terminal before scheduling starts. */
   seedResults?: WorkflowStepResult[];
   /** Session-owned ephemeral role registry; saved/unregistered roles are rejected. */
-  dynamicRoles?: DynamicRoleRegistry;
   /** Enforce MAX on the child through the public v1 spawn model override. */
   childModel?: string;
   runController?: RabbitRunController;
@@ -65,46 +61,6 @@ async function spawnStep(
     return spawnTemporaryAgent(rpc, step.spec, spawnOptions);
   if (isBaselineRole(step.role))
     return spawnBaselineRole(rpc, step.role, task, spawnOptions);
-  if (isRabbitBundledRole(step.role))
-    return spawnRabbitBundledRole(rpc, step.role, task, spawnOptions);
-
-  const dynamicRole = options?.dynamicRoles?.resolveRuntimeName(step.role);
-  if (dynamicRole) {
-    try {
-      const reply = await rpc.call("spawn", {
-        agent: dynamicRole.runtimeName,
-        task,
-        ...(options?.childModel ? { model: options.childModel } : {}),
-      });
-      if (!reply.success) {
-        return {
-          ok: false as const,
-          message: `Spawn fehlgeschlagen (${reply.error.code}): ${reply.error.message}`,
-        };
-      }
-      const data =
-        typeof reply.data === "object" && reply.data !== null
-          ? (reply.data as Record<string, unknown>)
-          : undefined;
-      const details =
-        typeof data?.details === "object" && data.details !== null
-          ? (data.details as Record<string, unknown>)
-          : undefined;
-      return {
-        ok: true as const,
-        message:
-          typeof data?.text === "string"
-            ? data.text
-            : `${dynamicRole.runtimeName} gestartet.`,
-        runId: typeof details?.runId === "string" ? details.runId : undefined,
-      };
-    } catch (error) {
-      return {
-        ok: false as const,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
 
   return { ok: false as const, message: `Unbekannte Rolle "${step.role}".` };
 }
@@ -163,10 +119,7 @@ export async function runWorkflow(
     return { ok: false, outcome: "blocked", steps: [], error: begun.error };
   }
 
-  const validation = validateWorkflowGraph(steps, {
-    isDynamicRole: (role) =>
-      options?.dynamicRoles?.resolveRuntimeName(role) !== undefined,
-  });
+  const validation = validateWorkflowGraph(steps);
   if (!validation.valid) {
     controller?.finish("blocked");
     return {
@@ -209,15 +162,6 @@ export async function runWorkflow(
       return;
     }
 
-    const dynamicRole = options?.dynamicRoles?.resolveRuntimeName(step.role);
-    if (dynamicRole && !options?.dynamicRoles?.retain(step.role)) {
-      statusById.set(step.id, "failed");
-      messageById.set(
-        step.id,
-        `Ephemere Rolle "${step.role}" ist nicht mehr verfügbar.`,
-      );
-      return;
-    }
 
     controller?.beginStep(step.id);
     let activeRunId: string | undefined;
@@ -257,7 +201,7 @@ export async function runWorkflow(
       );
       if (outcome.timedOut) {
         // A timeout is not proof that the external child stopped. Keep the
-        // controller entry and dynamic role alive so /rabbit off and cleanup
+        // controller entry alive so /rabbit off and cleanup
         // cannot race a still-running child.
         childMayStillRun = true;
         statusById.set(step.id, "running");
@@ -277,7 +221,6 @@ export async function runWorkflow(
       if (!childMayStillRun) {
         if (activeRunId) controller?.completeChild(activeRunId);
         controller?.finishStep(step.id);
-        if (dynamicRole) await options?.dynamicRoles?.release(step.role);
       }
     }
   }

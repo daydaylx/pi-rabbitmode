@@ -7,7 +7,6 @@ import { createWorkflowSessionHolder } from "../src/orchestration/workflow-sessi
 import { createRabbitRunController } from "../src/orchestration/run-controller.ts";
 import {
   createFakeCommandContext,
-  createFakeDynamicRoleRegistry,
   createFakeExtensionApi,
   createFakeSaveWorkflowSnapshot,
   createFakeSubagentRpcClient,
@@ -19,14 +18,12 @@ function setup() {
   const runController = createRabbitRunController();
   const state = createRabbitState(api as unknown as ExtensionAPI, runController);
   const rpc = createFakeSubagentRpcClient();
-  const dynamicRoles = createFakeDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
   const saveWorkflow = createFakeSaveWorkflowSnapshot();
   registerRabbitCommand(
     api as unknown as ExtensionAPI,
     state,
     rpc as never,
-    dynamicRoles as never,
     workflowSessions,
     saveWorkflow.fn as never,
     runController,
@@ -34,7 +31,7 @@ function setup() {
   const { ctx, notifications } = createFakeCommandContext({
     model: fakeModelSupportingMax(),
   });
-  return { api, state, runController, ctx, notifications, rpc, dynamicRoles, workflowSessions, saveWorkflow };
+  return { api, state, runController, ctx, notifications, rpc, workflowSessions, saveWorkflow };
 }
 
 async function run(
@@ -105,7 +102,6 @@ test("/rabbit status reports pi-subagents availability via ping", async () => {
     api as unknown as ExtensionAPI,
     state,
     rpc as never,
-    createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
     createFakeSaveWorkflowSnapshot().fn as never,
   );
@@ -127,7 +123,6 @@ test("/rabbit status reports pi-subagents as unreachable on ping timeout", async
     api as unknown as ExtensionAPI,
     state,
     rpc as never,
-    createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
     createFakeSaveWorkflowSnapshot().fn as never,
   );
@@ -215,89 +210,6 @@ test("/rabbit spawn with an invalid spec JSON never spawns and shows the reason"
   assert.match(notifications[1]?.message ?? "", /verify/);
   assert.match(notifications[2]?.message ?? "", /Orchestrierung erweitert keine Rechte/);
   assert.match(notifications[3]?.message ?? "", /Ungültiges JSON/);
-});
-
-test("/rabbit define requires RabbitMode to be active first", async () => {
-  const { api, ctx, notifications } = setup();
-  await run(api, ctx, 'define {"id":"x","purpose":"p","instructions":"i","tools":["read"],"task":"t"}');
-
-  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
-});
-
-test("/rabbit define with no argument shows its usage", async () => {
-  const { api, ctx, notifications } = setup();
-  await run(api, ctx, "on");
-  await run(api, ctx, "define");
-
-  assert.match(notifications[1]?.message ?? "", /rabbit define/);
-});
-
-test("/rabbit define with invalid JSON reports a JSON error, not a crash", async () => {
-  const { api, ctx, notifications } = setup();
-  await run(api, ctx, "on");
-  await run(api, ctx, "define {not json");
-
-  assert.match(notifications[1]?.message ?? "", /Ungültiges JSON/);
-});
-
-test("/rabbit define with valid JSON calls the dynamic role registry and reports success", async () => {
-  const { api, ctx, notifications, dynamicRoles } = setup();
-  await run(api, ctx, "on");
-  await run(
-    api,
-    ctx,
-    'define {"id":"api-checker","purpose":"p","instructions":"i","tools":["read"],"task":"check it"}',
-  );
-
-  assert.equal(dynamicRoles.defineCalls.length, 1);
-  assert.equal(notifications[1]?.type, "info");
-});
-
-test("/rabbit save-agent requires RabbitMode to be active first", async () => {
-  const { api, ctx, notifications } = setup();
-  await run(api, ctx, "save-agent api-checker");
-
-  assert.match(notifications[0]?.message ?? "", /erst \/rabbit on/);
-});
-
-test("/rabbit save-agent with no argument shows its usage", async () => {
-  const { api, ctx, notifications } = setup();
-  await run(api, ctx, "on");
-  await run(api, ctx, "save-agent");
-
-  assert.match(notifications[1]?.message ?? "", /rabbit save-agent/);
-});
-
-test("/rabbit save-agent calls the registry and reports the permanent path", async () => {
-  const { api, ctx, notifications, dynamicRoles } = setup();
-  await run(api, ctx, "on");
-  await run(api, ctx, "save-agent api-checker");
-
-  assert.equal(dynamicRoles.saveCalls.length, 1);
-  assert.equal(dynamicRoles.saveCalls[0]?.id, "api-checker");
-  assert.equal(notifications[1]?.type, "info");
-  assert.match(notifications[1]?.message ?? "", /rabbit-saved/);
-});
-
-test("/rabbit save-agent reports a registry error, not a crash", async () => {
-  const api = createFakeExtensionApi();
-  const state = createRabbitState(api as unknown as ExtensionAPI);
-  const dynamicRoles = createFakeDynamicRoleRegistry({ saveBehavior: "error", saveError: "not found" });
-  registerRabbitCommand(
-    api as unknown as ExtensionAPI,
-    state,
-    createFakeSubagentRpcClient() as never,
-    dynamicRoles as never,
-    createWorkflowSessionHolder(),
-    createFakeSaveWorkflowSnapshot().fn as never,
-  );
-  const { ctx, notifications } = createFakeCommandContext({ model: fakeModelSupportingMax() });
-
-  await run(api, ctx, "on");
-  await run(api, ctx, "save-agent never-defined");
-
-  assert.equal(notifications[1]?.type, "error");
-  assert.match(notifications[1]?.message ?? "", /not found/);
 });
 
 test("/rabbit workflow requires RabbitMode to be active first", async () => {
@@ -398,7 +310,7 @@ test("/rabbit replan with a valid reason and new step adds revision 2", async ()
   await run(
     api,
     ctx,
-    'replan {"reason":"found a gap","steps":[{"id":"b","role":"recovery-auditor","task":"y"}]}',
+    'replan {"reason":"found a gap","steps":[{"id":"b","role":"verifier","task":"y"}]}',
   );
 
   assert.equal(notifications[2]?.type, "info");
@@ -441,7 +353,6 @@ test("/rabbit save-workflow surfaces a persistence error as an error notificatio
     api as unknown as ExtensionAPI,
     state,
     createFakeSubagentRpcClient() as never,
-    createFakeDynamicRoleRegistry() as never,
     workflowSessions,
     saveWorkflow.fn as never,
   );
@@ -474,7 +385,7 @@ test("a second /rabbit workflow call starts a fresh session, not a third revisio
   await run(
     api,
     ctx,
-    'replan {"reason":"found a gap","steps":[{"id":"b","role":"recovery-auditor","task":"y"}]}',
+    'replan {"reason":"found a gap","steps":[{"id":"b","role":"verifier","task":"y"}]}',
   );
   const firstSession = workflowSessions.current();
   assert.equal(firstSession?.currentRevision(), 2);
@@ -546,7 +457,6 @@ test("/rabbit verify does not send a message while a turn is running", async () 
     api as unknown as ExtensionAPI,
     state,
     createFakeSubagentRpcClient() as never,
-    createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
     createFakeSaveWorkflowSnapshot().fn as never,
   );

@@ -19,9 +19,9 @@ test("validateWorkflowGraph accepts a single valid step", () => {
 
 test("validateWorkflowGraph accepts the example fan-out DAG", () => {
   const result = validateWorkflowGraph([
-    step("permissions", { role: "permission-auditor" }),
-    step("recovery", { role: "recovery-auditor" }),
-    step("architecture", { role: "architecture-auditor" }),
+    step("permissions", { role: "verifier" }),
+    step("recovery", { role: "verifier" }),
+    step("architecture", { role: "verifier" }),
     step("synthesis", { dependsOn: ["permissions", "recovery", "architecture"] }),
   ]);
   assert.deepEqual(result, { valid: true });

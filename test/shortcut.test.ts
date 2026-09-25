@@ -7,7 +7,6 @@ import { createRabbitState } from "../src/rabbit/state.ts";
 import { createWorkflowSessionHolder } from "../src/orchestration/workflow-session-holder.ts";
 import {
   createFakeCommandContext,
-  createFakeDynamicRoleRegistry,
   createFakeExtensionApi,
   createFakeSaveWorkflowSnapshot,
   createFakeSubagentRpcClient,
@@ -31,7 +30,6 @@ test("shortcut toggles the same state as /rabbit toggle (single code path)", asy
     api as unknown as ExtensionAPI,
     state,
     createFakeSubagentRpcClient() as never,
-    createFakeDynamicRoleRegistry() as never,
     createWorkflowSessionHolder(),
     createFakeSaveWorkflowSnapshot().fn as never,
   );

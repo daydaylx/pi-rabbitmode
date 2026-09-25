@@ -9,9 +9,8 @@ session-lokaler Rabbit-State, `/rabbit`-Command, `Super+Alt+R`-Shortcut,
 erzwungenes `max`-Thinking mit Restore und Modell-Capability-Check,
 `aurora-rabbit`-Theme + Statuswidget — statisch, noch ohne kontinuierliche
 Animation —, v1-RPC-Client zu `pi-subagents`, `/rabbit spawn` für
-Basisrollen und drei mitgelieferte Audit-Rollen, `/rabbit define` für
-echte session-lokale Ephemeral-Agent-Erzeugung mit hart read-only
-begrenztem Tool-Zugriff, `/rabbit workflow` für einen deklarativen DAG mit
+das `verifier`-Profil und temporäre Spec-Agenten (die frühere Rollenbibliothek
+mit `/rabbit define` und Audit-Rollen ist entfernt), `/rabbit workflow` für einen deklarativen DAG mit
 Abhängigkeiten und begrenzter Parallelität, `/rabbit replan` für
 begrenztes, begründungspflichtiges Replanning (max. 3 Revisionen),
 `maxSubagentDepth: 2` auf jeder von `pi-rabbitmode` geschriebenen Rolle
@@ -46,9 +45,7 @@ deckt die dadurch entstandene, abgespeckte Form von Phase 12 ab: ein
 reiner Komfort-Trigger für das echte `project_check`-Tool über
 `pi.sendUserMessage` (nicht mutationsgekoppelt, da RabbitMode selbst nie
 mutiert — vollständige Begründung in README.md unter "Bewusst
-abgespeckt: Phase 12"). `/rabbit save-agent <id>` macht eine noch
-ephemerale `/rabbit define`-Rolle dauerhaft (verschiebt die Datei nach
-`.pi/agents/rabbit-saved/`, kein neues Format); `/rabbit save-workflow
+abgespeckt: Phase 12"). `/rabbit save-workflow
 <name>` schreibt einen reinen JSON-Audit-Snapshot der Workflow-
 Revisionshistorie nach `.pi/rabbit-workflows/` — bewusst ohne
 Lademechanismus (vollständige Begründung in README.md unter "Phase 13:
@@ -81,20 +78,13 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
 - Keine versteckten Plan->Work-Wechsel.
 - Keine automatischen YOLO-/Permission-Erhöhungen.
 - Rabbit läuft mit `max`; kein stiller Downgrade.
-- Dynamische Agenten bleiben standardmäßig ephemeral: Rollendateien aus
-  `/rabbit define` und `rabbit_define_role` bleiben nur während des aktiven
-  RabbitMode-Fensters auffindbar; Cleanup bei Deaktivierung und als awaited
-  Fallback bei `session_shutdown`, ohne aktive Child-Runs vorzeitig zu
-  entkoppeln.
-- Tools dynamisch erzeugter Rollen sind hart auf `read, grep, find, ls`
-  begrenzt — kein `bash`/`write`/`edit`, keine Ausnahme.
-- Nested Depth maximal 2: jede von `pi-rabbitmode` geschriebene Rolle
-  setzt `maxSubagentDepth: 2` in ihrer Frontmatter (`pi-subagents`' eigener
-  Mechanismus, siehe `src/orchestration/dynamic-role.ts`).
-- Root-only dynamic agent creation: nur `/rabbit define` oder das
-  Main-Agent-Tool `rabbit_define_role` erzeugt Rollen; gespawnte Children
-  haben kein entsprechendes Tool und keine Schreib-/Shell-Zugriffe.
-- Kein Writer: dynamisch erzeugte Rollen erhalten dauerhaft keinen
+- Temporäre Agenten laufen über den Spec-Pfad (`daydaylx/pi` ADR 031): keine
+  Rollendateien, keine dauerhafte Identität, nur `read`/`search`. Die
+  frühere Rollenbibliothek (`/rabbit define`, `rabbit_define_role`,
+  Audit-Rollen, `dynamic-role.ts`) wurde entfernt.
+- Nested Depth maximal 2 über `pi-subagents`' eigenen Mechanismus
+  (`PI_SUBAGENT_MAX_DEPTH`); temporäre Agenten erhalten kein Delegations-Tool.
+- Kein Writer: temporäre Agenten erhalten dauerhaft keinen
   `write`-/`edit`-/`bash`-Zugriff — Phase 11 wurde geprüft und bewusst
   nicht umgesetzt (siehe "Aktueller Stand" oben und README.md).
 - `project_check` niemals selbst ausführen oder nachbauen: `/rabbit
@@ -107,9 +97,8 @@ die Grenzen zu `daydaylx/pi` und `daydaylx/pi-subagents` respektieren
   (echter `pi -p`-Smoketest) den Single-Shot-Kontrollfluss von
   `--print`/`--mode json`. Diese Gate nicht entfernen, ohne den
   zugrundeliegenden Pi-Core-Konflikt anderweitig gelöst zu haben.
-- Persistenz nur explizit: `/rabbit save-agent`/`/rabbit save-workflow`
-  sind die einzigen Pfade, über die etwas RabbitMode-Erzeugtes eine
-  Session überlebt. Kein anderer Code-Pfad darf automatisch persistieren.
+- Persistenz nur explizit: `/rabbit save-workflow` ist der einzige Pfad,
+  über den etwas RabbitMode-Erzeugtes eine Session überlebt. Kein anderer Code-Pfad darf automatisch persistieren.
   `/rabbit save-workflow` bleibt ein reiner Audit-Snapshot ohne Lade-
   mechanismus — kein `/rabbit workflow <name>` für gespeicherte Workflows.
 - Bestehende Pi-Shortcuts nicht verändern; einzige neue Bindung ist

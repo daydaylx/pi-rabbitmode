@@ -1,4 +1,4 @@
-import { isBaselineRole, isRabbitBundledRole } from "./agent-factory.ts";
+import { isBaselineRole } from "./agent-factory.ts";
 import { rabbitLimitsFromEnv, TEMPORARY_ROLE, validateRabbitSpec } from "./temporary-agent.ts";
 
 /**
@@ -44,13 +44,8 @@ export interface WorkflowStepDefinition {
 
 export type GraphValidation = { valid: true } | { valid: false; error: string };
 
-export interface GraphValidationOptions {
-  /** True only for an ephemeral role currently held by this session's registry. */
-  isDynamicRole?: (role: string) => boolean;
-}
-
-function isSpawnableRole(role: string, options?: GraphValidationOptions): boolean {
-  return isBaselineRole(role) || isRabbitBundledRole(role) || options?.isDynamicRole?.(role) === true;
+function isSpawnableRole(role: string): boolean {
+  return isBaselineRole(role);
 }
 
 /**
@@ -83,7 +78,6 @@ function hasCycle(steps: readonly WorkflowStepDefinition[]): boolean {
 
 export function validateWorkflowGraph(
   steps: WorkflowStepDefinition[],
-  options?: GraphValidationOptions,
 ): GraphValidation {
   if (!Array.isArray(steps) || steps.length === 0) {
     return { valid: false, error: "Workflow braucht mindestens einen Step." };
@@ -119,7 +113,7 @@ export function validateWorkflowGraph(
           error: `Step "${step.id}": temporäre Agenten können noch nicht von anderen Steps abhängen (kein Kontexttransport); andere Steps dürfen von ihnen abhängen.`,
         };
       }
-    } else if (!step.role || !isSpawnableRole(step.role, options)) {
+    } else if (!step.role || !isSpawnableRole(step.role)) {
       return { valid: false, error: `Step "${step.id}" hat eine unbekannte Rolle "${step.role}".` };
     }
     if (step.kind !== undefined && !["analysis", "synthesis", "verification"].includes(step.kind)) {

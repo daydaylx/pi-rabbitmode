@@ -2,8 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerRabbitCommand } from "../rabbit/commands.ts";
 import { registerRabbitShortcut } from "../rabbit/shortcut.ts";
 import { createRabbitState } from "../rabbit/state.ts";
-import { RABBIT_MODE_CHANGED_EVENT, isRabbitModeChangedEvent } from "../rabbit/events.ts";
-import { createDynamicRoleRegistry } from "../orchestration/dynamic-role.ts";
 import { createWorkflowSessionHolder } from "../orchestration/workflow-session-holder.ts";
 import { createRabbitRunController, stopRabbitRun } from "../orchestration/run-controller.ts";
 import { saveWorkflowSnapshot } from "../orchestration/workflow-persistence.ts";
@@ -13,7 +11,7 @@ import { registerRabbitSupervisorTools } from "../orchestration/supervisor-tools
 /**
  * RabbitMode extension entrypoint — Phase 1-10 (session state, /rabbit
  * command, Super+Alt+R shortcut, forced MAX thinking, Blue Shift theme +
- * status widget, pi-subagents v1 RPC client, baseline/bundled/dynamic-role
+ * status widget, pi-subagents v1 RPC client, baseline/temporary-agent
  * spawning, declarative workflow DAG with bounded replanning, nested-
  * delegation depth cap). See README.md and docs/spec/
  * 05_IMPLEMENTATION_PHASES.md for the full roadmap.
@@ -27,28 +25,10 @@ export default function rabbitModeExtension(pi: ExtensionAPI): void {
   const runController = createRabbitRunController(pi);
   const state = createRabbitState(pi, runController);
   const rpc = createSubagentRpcClient(pi);
-  const dynamicRoles = createDynamicRoleRegistry();
   const workflowSessions = createWorkflowSessionHolder();
-  registerRabbitSupervisorTools(pi, { state, rpc, dynamicRoles, workflowSessions, runController });
-  registerRabbitCommand(pi, state, rpc, dynamicRoles, workflowSessions, saveWorkflowSnapshot, runController);
+  registerRabbitSupervisorTools(pi, { state, rpc, workflowSessions, runController });
+  registerRabbitCommand(pi, state, rpc, workflowSessions, saveWorkflowSnapshot, runController);
   registerRabbitShortcut(pi, state);
-
-  // A dynamic role file must never outlive an active RabbitMode window —
-  // it stays discoverable/spawnable by anything (not just RabbitMode) for
-  // as long as it sits under .pi/agents/rabbit-dynamic/. Cleaning up only
-  // at session_shutdown left a gap: turning RabbitMode off (/rabbit off,
-  // toggle, or the shortcut) did not, by itself, remove roles a still-open
-  // session had defined. Listening on the same rabbit:mode-changed event
-  // every deactivation path already emits closes that gap in one place.
-  // `EventBus.on`'s handler type is `(data) => void` — `emit()` has no
-  // way to await it, so this is deliberately fire-and-forget: cleanup is
-  // triggered immediately but completes asynchronously, not necessarily
-  // before the command that turned RabbitMode off has already returned.
-  pi.events.on(RABBIT_MODE_CHANGED_EVENT, (value) => {
-    if (isRabbitModeChangedEvent(value) && value.mode === "off") {
-      void dynamicRoles.cleanupAll();
-    }
-  });
 
   pi.on("session_start", () => {
     state.reset();
@@ -74,16 +54,5 @@ export default function rabbitModeExtension(pi: ExtensionAPI): void {
       await runController.waitForSettled();
     }
     state.dispose(ctx);
-    // Fallback net: the mode-changed listener above only fires on an
-    // explicit deactivation. If the session ends while RabbitMode is
-    // still active (no /rabbit off first), this is what actually removes
-    // any dynamic role files instead of leaving them for the next
-    // session/process lifetime (reload/resume/new/fork keep this
-    // extension instance running). Awaited (unlike the EventBus listener
-    // above, whose `(data) => void` contract has no way to signal
-    // completion back to `emit()`) — `ExtensionHandler` is Promise-aware,
-    // so the harness actually waits for this before treating shutdown as
-    // complete.
-    await dynamicRoles.cleanupAll();
   });
 }

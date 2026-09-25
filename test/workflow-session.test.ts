@@ -210,10 +210,10 @@ test("a step that fails in revision 1 skips a revision-2 step depending on it", 
     }
     const { id } = params as { id: string };
     const agent = id.replace(/^run-/, "");
-    return terminalReply(agent, agent === "rabbitmode.recovery-auditor");
+    return terminalReply(agent, agent === "verifier");
   });
   const session = createWorkflowSession();
-  await session.start(rpc as never, [step("a", { role: "recovery-auditor" })], instantPoll);
+  await session.start(rpc as never, [step("a", { role: "verifier" })], instantPoll);
   assert.equal(session.revisions()[0]?.result.steps[0]?.status, "failed");
 
   const result = await session.replan(
